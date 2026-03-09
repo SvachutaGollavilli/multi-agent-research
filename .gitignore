@@ -7,3 +7,5 @@ __pycache__/
 artifacts/results/
 data/
 .python-version
+.env
+.env.example

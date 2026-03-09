@@ -27,24 +27,11 @@ def researcher_agent(state: ResearchState) -> ResearchState:
     print(f"\n🔍 Researcher Agent starting for query: '{state.query}'")
 
     try:
-        # Step 1: Ask the LLM to generate a better search query
-        messages = [
-            SystemMessage(content=(
-                "You are a research assistant. Your job is to rewrite the user's "
-                "question into the best possible web search query. "
-                "Return ONLY the search query, nothing else."
-            )),
-            HumanMessage(content=f"Original question: {state.query}")
-        ]
+        # Step 1: Search the web with the refined query
+        results = search_web(state.query, max_results=5)
+        print(f"  Found {len(results)} results")
 
-        refined_query = llm.invoke(messages).content.strip()
-        print(f"   📝 Refined query: '{refined_query}'")
-
-        # Step 2: Search the web with the refined query
-        results = search_web(refined_query, max_results=5)
-        print(f"   ✅ Found {len(results)} results")
-
-        # Step 3: Write results back to shared state
+        # Step 2: Write results back to shared state
         return ResearchState(
             query=state.query,
             search_results=results,
@@ -53,7 +40,7 @@ def researcher_agent(state: ResearchState) -> ResearchState:
         )
 
     except Exception as e:
-        print(f"   ❌ Researcher failed: {e}")
+        print(f"  Researcher failed: {e}")
         return ResearchState(
             query=state.query,
             search_results=[],

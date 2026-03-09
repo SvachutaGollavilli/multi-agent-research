@@ -13,17 +13,21 @@ class ResearchState(BaseModel):
 
     # Agent outputs — populated as the pipeline runs
     search_results: list[dict] = Field(
-        default_factory=list,
-        description="Raw search results from the researcher agent"
+        default_factory = list,
+        description = "Raw search results from the researcher agent"
+    )
+    analysis: Optional[str] = Field(
+        default = None,
+        description = "key insights extracted from analysis agent"
     )
     report: Optional[str] = Field(
-        default=None,
-        description="Final written report (populated by writer agent later)"
+        default = None,
+        description = "Final written report produced by writer agent later"
     )
     error: Optional[str] = Field(
-        default=None,
-        description="Any error message if something goes wrong"
+        default = None,
+        description = "Any error message if something goes wrong"
     )
 
-    class Config:  # ← must be INSIDE ResearchState
+    class Config:  
         arbitrary_types_allowed = True

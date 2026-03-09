@@ -2,6 +2,8 @@ from langgraph.graph import StateGraph, END
 from src.models.state import ResearchState
 from src.agents.planner import planner_agent
 from src.agents.researcher import researcher_agent
+from src.agents.analyst import analyst_agent
+from src.agents.writer import writer_agent
 
 
 def build_graph() -> StateGraph:
@@ -9,7 +11,7 @@ def build_graph() -> StateGraph:
     Builds and compiles the LangGraph research pipeline.
 
     Graph flow:
-        planner → researcher → END
+        planner → researcher → analyst -> writer -> END
 
     Each node receives the full ResearchState and returns
     an updated ResearchState.
@@ -21,11 +23,15 @@ def build_graph() -> StateGraph:
     # 2. Register nodes — each node is just a function
     graph.add_node("planner", planner_agent)
     graph.add_node("researcher", researcher_agent)
+    graph.add_node("analyst", analyst_agent)
+    graph.add_node("writer", writer_agent)
 
     # 3. Define the flow — edges connect nodes in order
     graph.set_entry_point("planner")       # always start here
     graph.add_edge("planner", "researcher") # planner → researcher
-    graph.add_edge("researcher", END)       # researcher → done
+    graph.add_edge("researcher", "analyst") # researcher → analyst
+    graph.add_edge("analyst", "writer")       # analyst → writer
+    graph.add_edge("writer", END)  #writer → END
 
     # 4. Compile — turns the graph definition into a runnable object
     return graph.compile()
@@ -48,11 +54,5 @@ if __name__ == "__main__":
 
     print("\n" + "=" * 60)
     print(" Pipeline complete!")
-    print(f" Final query used: {result['query']}")
-    print(f" Search results found: {len(result['search_results'])}")
     print("=" * 60)
-
-    for r in result["search_results"]:
-        print(f"\n   {r['title']}")
-        print(f"   {r['url']}")
-        print(f"   {r['content'][:150]}...")
+    print(f"\n {result['report']}")

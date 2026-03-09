@@ -56,5 +56,5 @@ if __name__ == "__main__":
     print(f"\n📊 Results found: {len(result_state.search_results)}")
     for r in result_state.search_results:
         print("=" * 50)
-        print(f"  📰 {r['title']}")
-        print(f"  🔗 {r['url']}")
+        print(f"  {r['title']}")
+        print(f"  {r['url']}")

@@ -21,7 +21,7 @@ def planner_agent(state: ResearchState) -> ResearchState:
     - Stores the refined question back in state as the query
     """
 
-    print(f"\n🗂️  Planner Agent starting...")
+    print(f"\n  Planner Agent starting...")
     print(f"   Original query: '{state.query}'")
 
     try:
@@ -36,7 +36,7 @@ def planner_agent(state: ResearchState) -> ResearchState:
         ]
 
         refined_question = llm.invoke(messages).content.strip()
-        print(f"   ✅ Refined question: '{refined_question}'")
+        print(f"  Refined question: '{refined_question}'")
 
         # Write the improved question back to state
         return ResearchState(
@@ -47,7 +47,7 @@ def planner_agent(state: ResearchState) -> ResearchState:
         )
 
     except Exception as e:
-        print(f"   ❌ Planner failed: {e}")
+        print(f"   Planner failed: {e}")
         return ResearchState(
             query=state.query,             # ← fall back to original if error
             search_results=state.search_results,

@@ -4,9 +4,10 @@ from src.agents.planner import planner_agent
 from src.agents.researcher import researcher_agent
 from src.agents.analyst import analyst_agent
 from src.agents.writer import writer_agent
+from langgraph.graph.state import CompiledStateGraph
 
 
-def build_graph() -> StateGraph:
+def build_graph() -> CompiledStateGraph:
     """
     Builds and compiles the LangGraph research pipeline.
 

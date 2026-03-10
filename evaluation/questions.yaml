@@ -1,0 +1,124 @@
+# evaluation/questions.yaml
+# ─────────────────────────────────────────────
+# 10 evaluation questions for the multi-agent research pipeline.
+#
+# Each question has:
+#   id:             unique slug used as filename key
+#   query:          the exact string sent to run_pipeline()
+#   category:       topic domain — for breakdown analysis
+#   expected_points: key facts/concepts a complete answer MUST cover
+#                   The LLM judge uses these to score completeness.
+#                   Add or remove points freely — no code changes needed.
+# ─────────────────────────────────────────────
+
+questions:
+
+  - id: faiss_overview
+    query: "What is FAISS and how does it work?"
+    category: ml_tools
+    expected_points:
+      - "Facebook AI Similarity Search"
+      - "vector similarity search"
+      - "approximate nearest neighbor"
+      - "IVF or HNSW index types"
+      - "billion-scale datasets"
+      - "GPU support"
+
+  - id: transformer_attention
+    query: "How does the attention mechanism work in transformer models?"
+    category: deep_learning
+    expected_points:
+      - "query key value"
+      - "dot product or scaled dot product"
+      - "softmax"
+      - "multi-head attention"
+      - "self-attention"
+      - "positional encoding"
+
+  - id: rag_overview
+    query: "What is retrieval augmented generation (RAG) and when should you use it?"
+    category: llm_applications
+    expected_points:
+      - "retrieval augmented generation"
+      - "vector database or embedding store"
+      - "knowledge cutoff or hallucination reduction"
+      - "chunking documents"
+      - "similarity search at inference time"
+      - "use cases: enterprise knowledge base or Q&A"
+
+  - id: docker_vs_vm
+    query: "What is the difference between Docker containers and virtual machines?"
+    category: infrastructure
+    expected_points:
+      - "hypervisor"
+      - "shared kernel"
+      - "isolation"
+      - "startup time"
+      - "image layers"
+      - "resource overhead"
+
+  - id: gradient_descent
+    query: "How does gradient descent work in neural network training?"
+    category: deep_learning
+    expected_points:
+      - "loss function"
+      - "backpropagation"
+      - "learning rate"
+      - "weight update"
+      - "stochastic or mini-batch"
+      - "local minima or saddle points"
+
+  - id: kubernetes_overview
+    query: "What is Kubernetes and what problems does it solve?"
+    category: infrastructure
+    expected_points:
+      - "container orchestration"
+      - "pod"
+      - "node or cluster"
+      - "scaling"
+      - "self-healing or restart policy"
+      - "service discovery or load balancing"
+
+  - id: llm_hallucination
+    query: "Why do large language models hallucinate and how can it be reduced?"
+    category: llm_applications
+    expected_points:
+      - "training data distribution"
+      - "token prediction"
+      - "confidence calibration"
+      - "retrieval augmented generation"
+      - "grounding or citations"
+      - "RLHF or fine-tuning"
+
+  - id: vector_database
+    query: "What is a vector database and how is it different from a traditional database?"
+    category: ml_tools
+    expected_points:
+      - "high-dimensional embeddings"
+      - "approximate nearest neighbor"
+      - "semantic search"
+      - "SQL vs vector query"
+      - "examples: Pinecone, Chroma, Weaviate, Qdrant"
+      - "cosine similarity or dot product"
+
+  - id: python_gil
+    query: "What is the Python GIL and how does it affect multi-threaded programs?"
+    category: programming
+    expected_points:
+      - "Global Interpreter Lock"
+      - "CPython"
+      - "thread safety"
+      - "CPU-bound vs I/O-bound"
+      - "multiprocessing as workaround"
+      - "GIL removal in Python 3.13"
+
+  - id: devops_cicd
+    query: "What is CI/CD and what are the key components of a CI/CD pipeline?"
+    category: devops
+    expected_points:
+      - "continuous integration"
+      - "continuous deployment or delivery"
+      - "automated testing"
+      - "build stage"
+      - "artifact or image"
+      - "deployment stages: dev staging prod"

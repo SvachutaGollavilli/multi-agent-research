@@ -126,3 +126,16 @@ rate_limiter:
 logging:
   level: "INFO"
   queue_max_size: 1000
+
+# ── Evaluation ─────────────────────────────────
+# Settings for evaluation/run_eval.py
+evaluation:
+  judge_model:      "claude-haiku-4-5-20251001"  # model used for LLM-as-judge scoring
+  judge_max_tokens: 1024
+
+  # Dimension weights for composite score (must sum to 1.0)
+  weights:
+    accuracy:     0.35   # factual correctness — highest weight
+    completeness: 0.35   # all expected key points covered — highest weight
+    citations:    0.15   # sources cited and relevant
+    coherence:    0.15   # structure, clarity, no padding

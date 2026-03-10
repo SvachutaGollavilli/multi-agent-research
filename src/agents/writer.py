@@ -27,13 +27,11 @@ _llm = ChatAnthropic(
 def writer_agent(state: ResearchState) -> dict:
     """
     Writer Agent:
-    - First call:    writes fresh report from key_claims + synthesis
+    - First call:    writes fresh report, preferring synthesis over raw claims
     - Revision call: rewrites using reviewer feedback
     - Scrubs PII from output before storing
-    - Tracks draft versions
     """
     run_id          = state.get("run_id", "")
-    query           = state.get("query", "")
     revision_count  = state.get("revision_count", 0)
     existing_drafts = state.get("drafts", [])
 
@@ -41,10 +39,11 @@ def writer_agent(state: ResearchState) -> dict:
     logger.info(f"[writer] starting | revision: {revision_count}")
 
     try:
-        if revision_count == 0:
-            prompt = _build_initial_prompt(state)
-        else:
-            prompt = _build_revision_prompt(state)
+        prompt = (
+            _build_initial_prompt(state)
+            if revision_count == 0
+            else _build_revision_prompt(state)
+        )
 
         response = _llm.invoke([
             SystemMessage(content=(
@@ -111,43 +110,69 @@ def writer_agent(state: ResearchState) -> dict:
 
 
 def _build_initial_prompt(state: ResearchState) -> str:
-    claims  = state.get("key_claims", [])
-    sources = state.get("sources", [])
+    query          = state.get("query", "")
+    synthesis      = state.get("synthesis", "")
+    key_claims     = state.get("key_claims", [])
+    source_ranking = state.get("source_ranking", [])
+    sources        = state.get("sources", [])
 
-    claims_text = "\n".join(
-        f"- [{c.get('confidence','medium').upper()}] {c['claim']} "
-        f"[Source {c.get('source_idx','?')}]"
-        for c in claims
-    )
+    # Prefer synthesizer narrative; fall back to raw claims if synthesizer skipped
+    if synthesis:
+        content_block = (
+            f"Synthesized narrative (use this as your analytical backbone):\n"
+            f"{synthesis}\n\n"
+            f"Supporting claims for detail:\n"
+            + "\n".join(
+                f"- [{c.get('confidence','?').upper()}] {c['claim']} "
+                f"[Source {c.get('source_idx','?')}]"
+                for c in key_claims
+            )
+        )
+    else:
+        content_block = (
+            "Key claims (no synthesis available — write from these directly):\n"
+            + "\n".join(
+                f"- [{c.get('confidence','?').upper()}] {c['claim']} "
+                f"[Source {c.get('source_idx','?')}]"
+                for c in key_claims
+            )
+        )
+
+    # Use ranked sources for citation if available, else original order
+    cite_sources = source_ranking or [
+        {"source_idx": i + 1, "title": s.get("title", "Untitled"), "url": s.get("url", "")}
+        for i, s in enumerate(sources[:8])
+    ]
     sources_text = "\n".join(
-        f"[{i+1}] {s.get('title','Untitled')} — {s.get('url','')}"
-        for i, s in enumerate(sources[:10])
+        f"[{s['source_idx']}] {s.get('title','Untitled')} — {s.get('url','')}"
+        for s in cite_sources[:8]
     )
 
     return (
-        f"Research question: {state.get('query','')}\n\n"
-        f"Key claims:\n{claims_text}\n\n"
-        f"Sources:\n{sources_text}\n\n"
+        f"Research question: {query}\n\n"
+        f"{content_block}\n\n"
+        f"Sources (ranked by relevance):\n{sources_text}\n\n"
         "Write a focused research report in markdown (250-350 words). "
-        "Use these sections: "
+        "Sections: "
         "## Executive Summary (2-3 sentences), "
-        "## Key Findings (bullet points from the claims above), "
-        "## Conclusion (2-3 sentences), "
+        "## Key Findings (4-6 bullet points), "
+        "## Analysis (2-3 sentences drawing on the synthesis), "
+        "## Conclusion (1-2 sentences answering the research question), "
         "## Sources (numbered list). "
         "No padding, no repetition."
     )
 
 
 def _build_revision_prompt(state: ResearchState) -> str:
-    review      = state.get("review", {})
-    issues      = "\n".join(f"- {i}" for i in review.get("issues", []))
-    suggestions = "\n".join(f"- {s}" for s in review.get("suggestions", []))
-    current     = state.get("current_draft", "")
+    review   = state.get("review", {})
+    issues   = "\n".join(f"- {i}" for i in review.get("issues", []))
+    suggests = "\n".join(f"- {s}" for s in review.get("suggestions", []))
+    current  = state.get("current_draft", "")
 
     return (
         f"Revise this research report to fix the issues below. "
         f"Keep it under 350 words.\n\n"
         f"Current draft:\n{current[:3000]}\n\n"
         f"Issues to fix:\n{issues}\n\n"
-        f"Suggestions:\n{suggestions}"
+        f"Suggestions:\n{suggests}"
     )

@@ -9,3 +9,4 @@ data/
 .python-version
 .env
 .env.example
+results/

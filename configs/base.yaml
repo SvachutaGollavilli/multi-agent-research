@@ -5,57 +5,56 @@
 # ─────────────────────────────────────────────
 
 # ── LLM Models ────────────────────────────────
-# Assign different models to different agents.
-# Cheap/fast for high-volume agents, smarter for quality-critical ones.
 models:
-  planner:     "claude-haiku-4-5-20251001"   # fast — just decomposing a query
-  researcher:  "claude-haiku-4-5-20251001"   # fast — just refining search queries
-  analyst:     "claude-haiku-4-5-20251001"   # medium complexity
-  synthesizer: "claude-haiku-4-5-20251001"   # medium complexity
-  writer:      "claude-haiku-4-5-20251001"   # upgrade to sonnet when budget allows
-  reviewer:    "claude-haiku-4-5-20251001"   # upgrade to sonnet for stricter review
-  default:     "claude-haiku-4-5-20251001"   # fallback for any unlisted agent
+  planner:     "claude-haiku-4-5-20251001"
+  researcher:  "claude-haiku-4-5-20251001"
+  analyst:     "claude-haiku-4-5-20251001"
+  synthesizer: "claude-haiku-4-5-20251001"
+  writer:      "claude-haiku-4-5-20251001"
+  reviewer:    "claude-haiku-4-5-20251001"
+  default:     "claude-haiku-4-5-20251001"
 
 # ── Token limits per agent ─────────────────────
-# Prevents runaway LLM calls. Lower = faster + cheaper.
+# Tighter ceilings = faster responses.
+# Rule: set to ~1.5x the typical output, not the maximum possible.
+# Actual outputs observed: planner~100, analyst~800, writer~900 tokens.
 max_tokens:
-  planner:     512
-  researcher:  512
-  analyst:     2048
-  synthesizer: 2048
-  writer:      4096
-  reviewer:    1024
-  default:     1024
+  planner:     256    # structured output: sub_topics + plan — never long
+  researcher:  256    # no LLM call currently; placeholder for future query refinement
+  analyst:     768    # claims JSON — 6-8 claims, each ~80 tokens = ~640 tokens
+  synthesizer: 1024
+  writer:      1500   # markdown report ~900 tokens observed; 1500 is safe headroom
+  reviewer:    512
+  default:     512
 
 # ── Budget (USD) ───────────────────────────────
 budget:
-  soft_limit:  0.08     # warn at $0.08 — pipeline continues
-  hard_limit:  0.10     # stop at $0.10 — skip LLM, return fallback
+  soft_limit:  0.08
+  hard_limit:  0.10
 
 # ── Search settings ────────────────────────────
 search:
-  max_results:      5   # Tavily results per query
-  search_depth:     "basic"   # "basic" or "advanced" (advanced costs 2x)
-  max_wiki_results: 3   # Wikipedia results per query
+  max_results:      5
+  search_depth:     "basic"
+  max_wiki_results: 3
 
 # ── Pipeline behaviour ─────────────────────────
 pipeline:
-  max_sub_topics:    3   # planner decomposes into at most N sub-topics
-  max_revisions:     2   # reviewer can send back to writer at most N times
-  quality_threshold: 0.4 # quality gate: min score to proceed (0.0–1.0)
-  review_pass_score: 7   # reviewer: min score out of 10 to accept report
+  max_sub_topics:    3
+  max_revisions:     2
+  quality_threshold: 0.4
+  review_pass_score: 7
 
 # ── Cache ──────────────────────────────────────
 cache:
-  ttl_seconds: 86400    # 24 hours — how long to keep cached search results
-  enabled:     true     # set to false to force fresh searches every time
+  ttl_seconds: 86400
+  enabled:     true
 
 # ── Rate limiting ──────────────────────────────
-# Anthropic free tier: 50 req/min on Haiku
 rate_limiter:
   requests_per_minute: 50
 
 # ── Logging ────────────────────────────────────
 logging:
-  level: "INFO"         # DEBUG / INFO / WARNING / ERROR
-  queue_max_size: 1000  # drop events if queue exceeds this (protects agents)
+  level: "INFO"
+  queue_max_size: 1000

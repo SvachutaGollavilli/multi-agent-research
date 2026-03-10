@@ -32,13 +32,12 @@ def writer_agent(state: ResearchState) -> dict:
     - Scrubs PII from output before storing
     - Tracks draft versions
     """
-    run_id         = state.get("run_id", "")
-    query          = state.get("query", "")
-    revision_count = state.get("revision_count", 0)
+    run_id          = state.get("run_id", "")
+    query           = state.get("query", "")
+    revision_count  = state.get("revision_count", 0)
     existing_drafts = state.get("drafts", [])
 
-    event_id, t0 = log_agent_start(run_id, "writer",
-                                    {"revision": revision_count})
+    event_id, t0 = log_agent_start(run_id, "writer", {"revision": revision_count})
     logger.info(f"[writer] starting | revision: {revision_count}")
 
     try:
@@ -49,22 +48,22 @@ def writer_agent(state: ResearchState) -> dict:
 
         response = _llm.invoke([
             SystemMessage(content=(
-                "You are a professional research writer. Write clear, "
-                "well-structured reports in markdown. Only use the facts "
-                "provided — never invent citations."
+                "You are a concise professional research writer. "
+                "Write clear, well-structured markdown reports. "
+                "Be direct — no filler sentences. "
+                "Only use the facts provided — never invent citations."
             )),
             HumanMessage(content=prompt),
         ])
 
-        # Scrub PII before storing
         guardrail_result = check_output(response.content)
         draft_text = guardrail_result.scrubbed_text or response.content
 
         version   = revision_count + 1
         new_draft = {
-            "version":     version,
-            "content":     draft_text,
-            "char_count":  len(draft_text),
+            "version":      version,
+            "content":      draft_text,
+            "char_count":   len(draft_text),
             "pii_scrubbed": guardrail_result.pii_found,
         }
 
@@ -81,8 +80,7 @@ def writer_agent(state: ResearchState) -> dict:
                       tokens_used=usage.total_tokens,
                       cost_usd=cost_record.cost_usd)
 
-        logger.info(f"[writer] draft v{version} written "
-                    f"({len(draft_text)} chars)")
+        logger.info(f"[writer] draft v{version} written ({len(draft_text)} chars)")
 
         return {
             "drafts":         existing_drafts + [new_draft],
@@ -102,18 +100,18 @@ def writer_agent(state: ResearchState) -> dict:
         logger.error(f"[writer] failed: {e}")
         log_agent_end(event_id, run_id, "writer", t0, error=str(e))
         return {
-            "revision_count": revision_count + 1,  # prevent infinite loop
+            "revision_count": revision_count + 1,
             "errors":         [f"Writer error: {e}"],
             "pipeline_trace": [{
-                "agent":   "writer",
+                "agent":       "writer",
                 "duration_ms": int((time.time() - t0) * 1000),
-                "summary": f"Error: {e}",
+                "summary":     f"Error: {e}",
             }],
         }
 
 
 def _build_initial_prompt(state: ResearchState) -> str:
-    claims = state.get("key_claims", [])
+    claims  = state.get("key_claims", [])
     sources = state.get("sources", [])
 
     claims_text = "\n".join(
@@ -130,9 +128,13 @@ def _build_initial_prompt(state: ResearchState) -> str:
         f"Research question: {state.get('query','')}\n\n"
         f"Key claims:\n{claims_text}\n\n"
         f"Sources:\n{sources_text}\n\n"
-        f"Write a structured report with: "
-        f"## Executive Summary, ## Key Findings, ## Analysis, "
-        f"## Conclusion, ## Sources"
+        "Write a focused research report in markdown (250-350 words). "
+        "Use these sections: "
+        "## Executive Summary (2-3 sentences), "
+        "## Key Findings (bullet points from the claims above), "
+        "## Conclusion (2-3 sentences), "
+        "## Sources (numbered list). "
+        "No padding, no repetition."
     )
 
 
@@ -143,7 +145,8 @@ def _build_revision_prompt(state: ResearchState) -> str:
     current     = state.get("current_draft", "")
 
     return (
-        f"Revise this research report to fix all issues listed below.\n\n"
+        f"Revise this research report to fix the issues below. "
+        f"Keep it under 350 words.\n\n"
         f"Current draft:\n{current[:3000]}\n\n"
         f"Issues to fix:\n{issues}\n\n"
         f"Suggestions:\n{suggestions}"

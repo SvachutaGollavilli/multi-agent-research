@@ -5,15 +5,16 @@ from __future__ import annotations
 import logging
 
 from dotenv import load_dotenv
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
 
-from src.models.state import ResearchState, default_state
+from src.agents.analyst    import analyst_agent
 from src.agents.planner    import planner_agent
 from src.agents.researcher import researcher_agent
-from src.agents.analyst    import analyst_agent
 from src.agents.writer     import writer_agent
-from src.observability.logger import start_logger, start_run, end_run
+from src.models.state      import ResearchState, default_state
 from src.observability.cost   import RunCostAccumulator
+from src.observability.logger import end_run, start_logger, start_run
+from src.output.report_writer import write_report
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 def build_graph():
     """
     Build the research pipeline graph.
-    Current flow (Phase 6 — linear, observability wired):
+    Current flow (linear, observability wired):
         planner → researcher → analyst → writer → END
     """
     graph = StateGraph(ResearchState)
@@ -44,6 +45,7 @@ def build_graph():
 def run_pipeline(query: str) -> dict:
     """
     Run the full pipeline with observability.
+    Saves report to results/ as a Word document.
     Returns the final state dict.
     """
     start_logger()
@@ -56,8 +58,6 @@ def run_pipeline(query: str) -> dict:
         initial  = default_state(query=query, run_id=run_id)
         result   = pipeline.invoke(initial)
 
-        # operator.add reducers accumulated token_count and cost_usd correctly
-        # across all agents. Pass them directly — these are the authoritative totals.
         end_run(
             run_id=run_id,
             accumulator=acc,
@@ -66,6 +66,31 @@ def run_pipeline(query: str) -> dict:
             total_tokens=result.get("token_count", 0),
             total_cost=result.get("cost_usd", 0.0),
         )
+
+        # Write report to Word document
+        report_path = write_report(result, run_id=run_id)
+        logger.info(f"Report saved → {report_path}")
+
+        # ── Summary log (system info only — no report content on console) ──
+        trace = result.get("pipeline_trace", [])
+        logger.info("─" * 60)
+        logger.info(f"Pipeline summary | run: {run_id[:8]}...")
+        logger.info(f"  sub-topics : {len(result.get('sub_topics', []))}")
+        logger.info(f"  sources    : {len(result.get('sources', []))}")
+        logger.info(f"  claims     : {len(result.get('key_claims', []))}")
+        logger.info(f"  tokens     : {result.get('token_count', 0)}")
+        logger.info(f"  cost       : ${result.get('cost_usd', 0.0):.6f}")
+        logger.info(f"  output     : {report_path}")
+        logger.info("─" * 60)
+        for step in trace:
+            logger.info(
+                f"  {step.get('agent','?'):12s} | "
+                f"{step.get('duration_ms', 0):5d}ms | "
+                f"tokens: {step.get('tokens', 0):5d} | "
+                f"{step.get('summary', '')}"
+            )
+        logger.info("─" * 60)
+
         return result
 
     except Exception as e:
@@ -77,28 +102,8 @@ def run_pipeline(query: str) -> dict:
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s | %(name)s | %(levelname)s | %(message)s"
+        format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
     )
 
-    query  = input("\n🔬 Enter your research question: ")
-    result = run_pipeline(query)
-
-    print("\n" + "=" * 60)
-    print("Pipeline complete!")
-    print("=" * 60)
-    print(f"\nSub-topics researched: {result.get('sub_topics', [])}")
-    print(f"Sources found:         {len(result.get('sources', []))}")
-    print(f"Claims extracted:      {len(result.get('key_claims', []))}")
-    print(f"Total tokens:          {result.get('token_count', 0)}")
-    print(f"Total cost:            ${result.get('cost_usd', 0.0):.6f}")
-    print(f"\n{'─'*60}")
-    print(result.get("current_draft", "No report generated"))
-
-    trace = result.get("pipeline_trace", [])
-    print(f"\n{'─'*60}")
-    print(f"Pipeline trace ({len(trace)} steps):")
-    for step in trace:
-        print(f"  {step.get('agent','?'):12s} | "
-              f"{step.get('duration_ms',0):5d}ms | "
-              f"tokens: {step.get('tokens', 0):5d} | "
-              f"{step.get('summary','')}")
+    query = input("\n🔬 Enter your research question: ")
+    run_pipeline(query)

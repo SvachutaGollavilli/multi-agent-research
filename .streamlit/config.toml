@@ -1,0 +1,19 @@
+[server]
+headless       = true      # required for Streamlit Cloud (no browser auto-open)
+enableCORS     = false
+enableXsrfProtection = true
+maxUploadSize  = 10        # MB
+
+[runner]
+magicEnabled = false       # disable magic commands -- keeps behaviour predictable
+
+[browser]
+gatherUsageStats = false   # do not send telemetry to Streamlit
+
+[theme]
+base             = "dark"
+primaryColor     = "#6366f1"   # indigo-500 -- matches the research/AI aesthetic
+backgroundColor  = "#0f172a"   # slate-900
+secondaryBackgroundColor = "#1e293b"  # slate-800
+textColor        = "#f1f5f9"   # slate-100
+font             = "monospace"

@@ -10,3 +10,5 @@ data/
 .env
 .env.example
 results/
+evaluation/results/
+.streamlit/secrets.toml

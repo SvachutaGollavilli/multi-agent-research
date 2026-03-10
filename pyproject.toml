@@ -5,13 +5,14 @@ description = "Multi-agent research assistant built with LangGraph"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "aiosqlite>=0.22.1",
+    "aiohttp>=3.10.0",            # async HTTP for Tavily search
+    "aiosqlite>=0.22.1",          # async SQLite for future use
     "beautifulsoup4>=4.14.3",
     "hatchling>=1.29.0",
     "langchain>=1.2.10",
     "langchain-anthropic>=1.3.4",
     "langgraph>=1.0.10",
-    "psycopg>=3.3.3",
+    "psycopg>=3.3.3",             # psycopg3 for Supabase PostgreSQL
     "pydantic>=2.12.5",
     "python-docx>=1.1.2",
     "python-dotenv>=1.2.2",
@@ -35,3 +36,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

@@ -42,8 +42,15 @@ PRICING: dict[str, dict[str, float]] = {
 _FALLBACK_PRICING: dict[str, float] = {"input": 0.003, "output": 0.015}
 
 # ── Budget limits (USD) ────────────────────────
-SOFT_LIMIT: float = 0.08   # warn  — log a warning, pipeline continues
-HARD_LIMIT: float = 0.10   # stop  — skip LLM call, return fallback response
+def _get_limits() -> tuple[float, float]:
+    """Read budget limits from config at runtime (not import time)."""
+    from src.config import get_budget_config   # local import avoids circular dep
+    budget = get_budget_config()
+    return float(budget["soft_limit"]), float(budget["hard_limit"])
+
+# Read once at module load — config is cached so this is free
+SOFT_LIMIT, HARD_LIMIT = _get_limits()
+
 
 
 # ═══════════════════════════════════════════════

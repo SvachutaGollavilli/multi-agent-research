@@ -44,28 +44,17 @@ pipeline:
   max_quality_retries: 1   # how many times quality gate can send back to researcher
 
 # ── Quality gate ───────────────────────────────
-# Pure-Python heuristic scorer — no LLM, no cost, runs in <1ms.
-# Composite score = (domain_trust × domain_weight) + (snippet_quality × snippet_weight)
 quality_gate:
-  domain_weight:   0.5   # weight of domain trust in composite score
-  snippet_weight:  0.5   # weight of snippet quality in composite score
-
-  # Minimum snippet length thresholds
-  snippet_min_chars:  100   # below this → snippet quality = 0.0
-  snippet_max_chars:  300   # at or above this → snippet quality = 1.0
-                             # linear interpolation between min and max
-
-  # Boilerplate penalty — deducted from snippet quality score if found
+  domain_weight:   0.5
+  snippet_weight:  0.5
+  snippet_min_chars:  100
+  snippet_max_chars:  300
   boilerplate_penalty: 0.3
+  domain_trust_high:    1.0
+  domain_trust_medium:  0.6
+  domain_trust_low:     0.2
+  domain_trust_neutral: 0.4
 
-  # Domain trust scores (0.0–1.0) by tier
-  # Domains not in any list receive the neutral score
-  domain_trust_high:    1.0   # wikipedia, arxiv, nature, gov, edu domains
-  domain_trust_medium:  0.6   # medium, github, towardsdatascience, etc.
-  domain_trust_low:     0.2   # reddit, quora, yahoo answers, etc.
-  domain_trust_neutral: 0.4   # unknown / unlisted domains
-
-  # Domains by tier (extend these lists freely — no code changes needed)
   high_trust_domains:
     - "wikipedia.org"
     - "arxiv.org"
@@ -103,7 +92,6 @@ quality_gate:
     - "yahoo.com"
     - "answers.com"
 
-  # Boilerplate phrases — if any appear in a snippet, apply penalty
   boilerplate_phrases:
     - "click here"
     - "subscribe now"
@@ -119,13 +107,16 @@ quality_gate:
 
 # ── Cache ──────────────────────────────────────
 cache:
-  ttl_seconds:          86400
-  enabled:              true
-  similarity_threshold: 0.85  # cosine similarity cutoff for semantic cache hits
-                               # 1.0 = exact match only
-                               # 0.85 = catches paraphrases ("what is X" / "explain X")
-                               # 0.70 = aggressive — risks false positives
-                               # <0.70 = different topic, always a true miss
+  ttl_seconds: 86400
+  enabled:     true
+  similarity_threshold: 0.60
+  # Threshold guide for short queries (4-6 words):
+  #   0.85  too tight — misses typos and minor phrasing differences
+  #   0.60  catches paraphrases, typos, word order changes (current)
+  #         e.g. "what is FAISS" hits "ehat is FAISS" (score ~0.64)
+  #         e.g. "explain FAISS" hits "what is FAISS" (score ~0.76)
+  #   0.45  aggressive — risks returning results for a different topic
+  #   <0.45 don't use — cosine of unrelated short queries can reach 0.4
 
 # ── Rate limiting ──────────────────────────────
 rate_limiter:

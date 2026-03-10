@@ -1,14 +1,28 @@
 # src/agents/researcher.py
+# ─────────────────────────────────────────────
+# Researcher Agent — single-topic, Send()-aware.
+#
+# In the parallel fan-out architecture, LangGraph dispatches one instance
+# of this agent per sub-topic via Send(). Each instance receives its own
+# sub-topic in state["current_topic"] and searches only that topic.
+#
+# Parallelism is now LangGraph's responsibility, not ours.
+# ThreadPoolExecutor has been removed — it was doing the same job that
+# Send() now does at the graph level, but invisibly.
+#
+# Cache: NOT checked or written here. Cache logic lives in:
+#   - graph.py::fan_out_or_cache   (check before fan-out)
+#   - graph.py::merge_research     (write after fan-out)
+# This keeps the researcher stateless and focused on one job: fetch sources.
+# ─────────────────────────────────────────────
 
 from __future__ import annotations
 
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from dotenv import load_dotenv
 
-from src.cache.research_cache import fetch as cache_fetch, store as cache_store
 from src.config import get_search_config
 from src.models.state import ResearchState
 from src.observability.logger import log_agent_end, log_agent_start
@@ -20,159 +34,92 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
-def _search_one_topic(topic: str, max_results: int, max_wiki: int) -> dict:
-    """
-    Search a single topic. Stateless — runs in a thread.
-    NOTE: Does NOT check/write cache here. Cache is managed at the
-    original-query level in researcher_agent() to ensure cache keys
-    are stable across runs (planner sub-topics are LLM-generated and
-    non-deterministic, so they can't be used as reliable cache keys).
-    """
-    selection = select_tool(topic)
-    tool      = selection["tool"]
-    raw: list[dict] = []
-
-    if tool in ("wikipedia", "both"):
-        try:
-            raw.extend(search_wikipedia(topic, max_results=max_wiki))
-        except Exception as e:
-            logger.warning(f"[researcher] wikipedia failed for '{topic[:40]}': {e}")
-
-    if tool in ("tavily", "both"):
-        try:
-            raw.extend(search_web(topic, max_results=max_results))
-        except Exception as e:
-            logger.warning(f"[researcher] tavily failed for '{topic[:40]}': {e}")
-
-    # URL dedup within this topic's results
-    seen: set = set()
-    unique: list[dict] = []
-    for r in raw:
-        url = r.get("url", "")
-        if url and url not in seen:
-            seen.add(url)
-            unique.append(r)
-
-    return {"topic": topic, "results": unique, "tool": tool}
-
-
 def researcher_agent(state: ResearchState) -> dict:
     """
-    Researcher Agent — cache-first, then parallel sub-topic search.
+    Researcher Agent — searches a single topic and returns sources.
 
-    Cache strategy:
-      Key  = original query (stable across runs — never changes)
-      NOT  = sub-topic strings (LLM-generated, different every run)
-      On hit  → return immediately, skip all searches
-      On miss → fan-out parallel searches, store result under original query
+    Receives current_topic from Send() — the specific sub-topic to research.
+    Falls back to query if current_topic is not set (direct/retry calls).
 
-    Parallel strategy:
-      ThreadPoolExecutor fans out one thread per sub-topic.
-      Wall-clock time = slowest single search, not their sum.
+    Does NOT check or write cache — that is handled at the graph level
+    (fan_out_or_cache checks before dispatch, merge_research writes after).
     """
-    run_id     = state.get("run_id", "")
-    query      = state.get("query", "")       # original query — stable cache key
-    sub_topics = state.get("sub_topics") or [query]
+    run_id        = state.get("run_id", "")
+    query         = state.get("query", "")
+    current_topic = state.get("current_topic", "") or query  # fallback to original query
 
-    event_id, t0 = log_agent_start(run_id, "researcher", {
-        "query":      query,
-        "sub_topics": len(sub_topics),
-    })
+    event_id, t0 = log_agent_start(run_id, "researcher", {"topic": current_topic[:60]})
+    logger.info(f"[researcher] searching topic: '{current_topic[:60]}'")
 
     try:
         search_cfg  = get_search_config()
         max_results = search_cfg.get("max_results", 5)
         max_wiki    = search_cfg.get("max_wiki_results", 3)
 
-        # ── Layer 1: Cache check on ORIGINAL query ────────────────────────
-        # The original query never changes between runs for the same question.
-        # Sub-topic strings do change (LLM non-determinism) so we never key on those.
-        cached = cache_fetch(query)
-        if cached is not None:
-            elapsed_ms = int((time.time() - t0) * 1000)
-            logger.info(
-                f"[researcher] cache HIT on original query | "
-                f"{len(cached)} sources | {elapsed_ms}ms"
-            )
-            log_agent_end(event_id, run_id, "researcher", t0)
-            return {
-                "sources":             cached,
-                "search_queries_used": [query],
-                "pipeline_trace": [{
-                    "agent":       "researcher",
-                    "duration_ms": elapsed_ms,
-                    "tokens":      0,
-                    "summary":     f"Cache HIT: {len(cached)} sources for '{query[:40]}'",
-                }],
-            }
+        # Select tool based on the topic content
+        selection = select_tool(current_topic)
+        tool      = selection["tool"]
+        logger.debug(
+            f"[researcher] tool={tool} | conf={selection['confidence']} | "
+            f"{selection['reason']}"
+        )
 
-        # ── Layer 2: Parallel fan-out across sub-topics ───────────────────
-        logger.info(f"[researcher] cache MISS — searching {len(sub_topics)} sub-topics in parallel")
-        all_results: list[dict] = []
-        queries_used: list[str] = []
+        raw: list[dict] = []
 
-        with ThreadPoolExecutor(max_workers=len(sub_topics)) as executor:
-            futures = {
-                executor.submit(_search_one_topic, topic, max_results, max_wiki): topic
-                for topic in sub_topics
-            }
-            for future in as_completed(futures):
-                topic = futures[future]
-                try:
-                    r = future.result()
-                    all_results.extend(r["results"])
-                    queries_used.append(r["topic"])
-                    logger.debug(
-                        f"[researcher] '{topic[:35]}' → "
-                        f"{r['tool']} ({len(r['results'])} results)"
-                    )
-                except Exception as e:
-                    logger.error(f"[researcher] sub-topic '{topic[:40]}' failed: {e}")
+        if tool in ("wikipedia", "both"):
+            try:
+                wiki_results = search_wikipedia(current_topic, max_results=max_wiki)
+                raw.extend(wiki_results)
+                logger.debug(f"[researcher] wikipedia: {len(wiki_results)} results")
+            except Exception as e:
+                logger.warning(f"[researcher] wikipedia failed: {e}")
 
-        # ── Global URL dedup ──────────────────────────────────────────────
-        seen_urls: set = set()
+        if tool in ("tavily", "both"):
+            try:
+                tavily_results = search_web(current_topic, max_results=max_results)
+                raw.extend(tavily_results)
+                logger.debug(f"[researcher] tavily: {len(tavily_results)} results")
+            except Exception as e:
+                logger.warning(f"[researcher] tavily failed: {e}")
+
+        # URL dedup within this topic's results
+        seen: set = set()
         unique: list[dict] = []
-        for r in all_results:
+        for r in raw:
             url = r.get("url", "")
-            if url and url not in seen_urls:
-                seen_urls.add(url)
+            if url and url not in seen:
+                seen.add(url)
                 unique.append(r)
-
-        # ── Store under ORIGINAL query — stable key for future runs ───────
-        if unique:
-            cache_store(query, unique, tool_used="parallel")
 
         elapsed_ms = int((time.time() - t0) * 1000)
         logger.info(
-            f"[researcher] done | {len(unique)} unique sources | "
-            f"{elapsed_ms}ms | stored in cache"
+            f"[researcher] done | '{current_topic[:40]}' → "
+            f"{len(unique)} sources via {tool} | {elapsed_ms}ms"
         )
         log_agent_end(event_id, run_id, "researcher", t0)
 
         return {
             "sources":             unique,
-            "search_queries_used": queries_used,
+            "search_queries_used": [current_topic],
             "pipeline_trace": [{
                 "agent":       "researcher",
                 "duration_ms": elapsed_ms,
                 "tokens":      0,
-                "summary": (
-                    f"{len(unique)} sources from {len(sub_topics)} parallel searches"
-                ),
+                "summary":     f"'{current_topic[:35]}' → {len(unique)} sources via {tool}",
             }],
         }
 
     except Exception as e:
-        logger.error(f"[researcher] failed: {e}")
+        logger.error(f"[researcher] failed for '{current_topic[:40]}': {e}")
         log_agent_end(event_id, run_id, "researcher", t0, error=str(e))
         return {
             "sources":             [],
-            "search_queries_used": [query],
-            "errors":              [f"Researcher error: {e}"],
+            "search_queries_used": [current_topic],
+            "errors":              [f"Researcher error ({current_topic[:40]}): {e}"],
             "pipeline_trace": [{
                 "agent":       "researcher",
                 "duration_ms": int((time.time() - t0) * 1000),
                 "tokens":      0,
-                "summary":     f"Error: {e}",
+                "summary":     f"Error on '{current_topic[:35]}': {e}",
             }],
         }

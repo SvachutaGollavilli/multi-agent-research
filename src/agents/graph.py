@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import logging
+import threading
+import time
 
 from dotenv import load_dotenv
 from langgraph.graph import END, StateGraph
+from langgraph.types import Send
 
 from src.agents.analyst      import analyst_agent
 from src.agents.planner      import planner_agent
@@ -14,6 +17,7 @@ from src.agents.researcher   import researcher_agent
 from src.agents.reviewer     import reviewer_agent
 from src.agents.synthesizer  import synthesizer_agent
 from src.agents.writer       import writer_agent
+from src.cache.research_cache import fetch as cache_fetch, store as cache_store
 from src.config              import get_pipeline_config
 from src.models.state        import ResearchState, default_state
 from src.observability.cost  import RunCostAccumulator
@@ -24,17 +28,44 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
+# ═══════════════════════════════════════════════
+# Routing functions (read-only — cannot write state)
+# ═══════════════════════════════════════════════
+
+def fan_out_or_cache(state: ResearchState):
+    """
+    After planner: check cache first, fan out to parallel researchers on miss.
+
+    Cache HIT  → "cache_loader"  (single node, loads sources into state)
+    Cache MISS → [Send("researcher", …) × N]  (parallel fan-out)
+
+    force_research=True skips cache — set by retry_counter after a quality
+    gate failure so retries don't get the same low-quality cached results.
+    """
+    query          = state.get("query", "")
+    sub_topics     = state.get("sub_topics") or [query]
+    force_research = state.get("force_research", False)
+
+    if not force_research:
+        cached = cache_fetch(query)
+        if cached is not None:
+            logger.info(
+                f"[graph] cache HIT for '{query[:50]}' "
+                f"({len(cached)} sources) → cache_loader"
+            )
+            return "cache_loader"
+
+    logger.info(
+        f"[graph] {'forced fresh search' if force_research else 'cache MISS'} — "
+        f"fanning out to {len(sub_topics)} parallel researchers"
+    )
+    return [
+        Send("researcher", {**state, "current_topic": topic})
+        for topic in sub_topics
+    ]
+
+
 def _should_retry_research(state: ResearchState) -> str:
-    """
-    Routing function called after quality_gate.
-
-    Returns "analyst"    → sources passed quality bar, proceed normally
-    Returns "researcher" → sources failed, retry research (once)
-    Returns "analyst"    → sources failed BUT retry budget exhausted, proceed anyway
-
-    The retry cap (max_quality_retries) prevents infinite loops when a query
-    genuinely has no high-quality sources available.
-    """
     passed          = state.get("quality_passed", False)
     quality_retries = state.get("quality_retries", 0)
     score           = state.get("quality_score", 0.0)
@@ -50,39 +81,18 @@ def _should_retry_research(state: ResearchState) -> str:
     if quality_retries < max_quality_retries:
         logger.info(
             f"[graph] quality FAIL (score={score:.3f} < {threshold}) — "
-            f"retry {quality_retries + 1}/{max_quality_retries} → researcher"
+            f"retry {quality_retries + 1}/{max_quality_retries} → retry_counter"
         )
-        return "researcher"
+        return "retry_counter"
 
     logger.info(
-        f"[graph] quality FAIL (score={score:.3f}) but retries exhausted "
+        f"[graph] quality FAIL (score={score:.3f}) retries exhausted "
         f"({quality_retries}/{max_quality_retries}) — proceeding to analyst"
     )
     return "analyst"
 
 
-def _increment_quality_retries(state: ResearchState) -> dict:
-    """
-    Thin node that bumps quality_retries before routing back to researcher.
-    Needed because the routing function itself cannot mutate state — only
-    nodes can write to state in LangGraph.
-    Also clears sources so researcher starts fresh instead of appending.
-    """
-    retries = state.get("quality_retries", 0) + 1
-    logger.info(f"[graph] quality_retries → {retries}, clearing sources for fresh search")
-    return {
-        "quality_retries": retries,
-        "sources":         [],   # reset so researcher doesn't accumulate duplicates
-    }
-
-
 def _should_revise(state: ResearchState) -> str:
-    """
-    Routing function called after reviewer.
-
-    Returns "end"    → quality passed or revision budget exhausted
-    Returns "revise" → route back to writer for another draft
-    """
     review         = state.get("review", {})
     score          = review.get("score", 0)
     passed         = review.get("passed", False)
@@ -110,72 +120,167 @@ def _should_revise(state: ResearchState) -> str:
     return "revise"
 
 
-def build_graph():
-    """
-    Full research pipeline graph:
+# ═══════════════════════════════════════════════
+# Utility nodes
+# ═══════════════════════════════════════════════
 
-        planner
-           ↓
-        researcher ←──────────────────────┐
-           ↓                              │ (retry, retries < max)
-        quality_gate                      │
-           ↓ (pass)          (fail) ──→ retry_counter
-        analyst                           │
-           ↓                    (fail, retries exhausted) ──→ analyst
-        synthesizer
-           ↓
-        writer ←──────────────────────────┐
-           ↓                              │ (score < threshold)
-        reviewer                          │
-           ↓ (pass or max revisions)     │
-          END                            │
-                        (fail) ──────────┘
+def cache_loader_node(state: ResearchState) -> dict:
+    """Write cached sources into state. Needed because routing fns are read-only."""
+    query = state.get("query", "")
+    t0    = time.time()
+
+    cached  = cache_fetch(query)
+    sources = cached or []
+
+    elapsed_ms = int((time.time() - t0) * 1000)
+    logger.info(f"[cache_loader] {len(sources)} cached sources | {elapsed_ms}ms")
+
+    return {
+        "sources":             sources,
+        "search_queries_used": [query],
+        "pipeline_trace": [{
+            "agent":       "cache_loader",
+            "duration_ms": elapsed_ms,
+            "tokens":      0,
+            "summary":     f"Cache HIT: {len(sources)} sources for '{query[:40]}'",
+        }],
+    }
+
+
+def merge_research_node(state: ResearchState) -> dict:
     """
+    Runs once after all parallel Send("researcher") branches finish.
+    LangGraph has already concatenated sources via operator.add.
+
+    Two jobs:
+      1. Global URL dedup across the merged list (parallel topics can overlap)
+      2. Fire cache write in a BACKGROUND DAEMON THREAD so quality_gate starts
+         immediately — the pipeline never waits for the ~40ms embed + SQLite write.
+
+    daemon=True: the thread is silently abandoned if the process exits before
+    it finishes. Acceptable for a cache — a missed write just means the next
+    run re-fetches, it doesn't corrupt anything.
+    """
+    query   = state.get("query", "")
+    sources = state.get("sources", [])
+    t0      = time.time()
+
+    # ── Global URL dedup ──────────────────────────────────────────────────
+    seen:   set        = set()
+    unique: list[dict] = []
+    for s in sources:
+        url = s.get("url", "")
+        if url and url not in seen:
+            seen.add(url)
+            unique.append(s)
+
+    duplicates = len(sources) - len(unique)
+    if duplicates:
+        logger.info(f"[merge_research] deduped {duplicates} duplicate URLs")
+
+    # ── Background cache write ────────────────────────────────────────────
+    # Fire and forget — quality_gate starts on the NEXT line, in parallel.
+    # The thread handles embedding compute (~40ms) + SQLite write without
+    # blocking the critical path.
+    if unique:
+        t = threading.Thread(
+            target=cache_store,
+            args=(query, unique, "parallel_send"),
+            daemon=True,
+            name="cache-write",
+        )
+        t.start()
+        logger.info(f"[merge_research] cache write dispatched to background thread")
+
+    elapsed_ms = int((time.time() - t0) * 1000)
+    logger.info(
+        f"[merge_research] {len(unique)} unique sources "
+        f"(removed {duplicates} dupes) | {elapsed_ms}ms"
+    )
+
+    return {
+        "sources": unique,
+        "pipeline_trace": [{
+            "agent":       "merge_research",
+            "duration_ms": elapsed_ms,
+            "tokens":      0,
+            "summary":     f"Merged to {len(unique)} unique sources (removed {duplicates} dupes)",
+        }],
+    }
+
+
+def retry_counter_node(state: ResearchState) -> dict:
+    """Bump retry count, set force_research, clear stale sources before re-dispatch."""
+    retries = state.get("quality_retries", 0) + 1
+    logger.info(
+        f"[retry_counter] quality_retries → {retries} | "
+        f"force_research=True | clearing sources"
+    )
+    return {
+        "quality_retries": retries,
+        "force_research":  True,
+        "sources":         [],
+    }
+
+
+# ═══════════════════════════════════════════════
+# Graph assembly
+# ═══════════════════════════════════════════════
+
+def build_graph():
     graph = StateGraph(ResearchState)
 
-    # ── Nodes ─────────────────────────────────
-    graph.add_node("planner",          planner_agent)
-    graph.add_node("researcher",       researcher_agent)
-    graph.add_node("quality_gate",     quality_gate_agent)
-    graph.add_node("retry_counter",    _increment_quality_retries)
-    graph.add_node("analyst",          analyst_agent)
-    graph.add_node("synthesizer",      synthesizer_agent)
-    graph.add_node("writer",           writer_agent)
-    graph.add_node("reviewer",         reviewer_agent)
+    graph.add_node("planner",        planner_agent)
+    graph.add_node("cache_loader",   cache_loader_node)
+    graph.add_node("researcher",     researcher_agent)
+    graph.add_node("merge_research", merge_research_node)
+    graph.add_node("quality_gate",   quality_gate_agent)
+    graph.add_node("retry_counter",  retry_counter_node)
+    graph.add_node("analyst",        analyst_agent)
+    graph.add_node("synthesizer",    synthesizer_agent)
+    graph.add_node("writer",         writer_agent)
+    graph.add_node("reviewer",       reviewer_agent)
 
-    # ── Edges ──────────────────────────────────
     graph.set_entry_point("planner")
-    graph.add_edge("planner",      "researcher")
-    graph.add_edge("researcher",   "quality_gate")
 
-    # Quality gate conditional: pass → analyst, fail → retry_counter
+    graph.add_conditional_edges(
+        "planner",
+        fan_out_or_cache,
+        {"cache_loader": "cache_loader", "researcher": "researcher"},
+    )
+
+    graph.add_edge("cache_loader",   "quality_gate")
+    graph.add_edge("researcher",     "merge_research")
+    graph.add_edge("merge_research", "quality_gate")
+
     graph.add_conditional_edges(
         "quality_gate",
         _should_retry_research,
-        {
-            "analyst":    "analyst",
-            "researcher": "retry_counter",
-        },
+        {"analyst": "analyst", "retry_counter": "retry_counter"},
     )
-    # retry_counter always loops back to researcher
-    graph.add_edge("retry_counter", "researcher")
 
-    graph.add_edge("analyst",      "synthesizer")
-    graph.add_edge("synthesizer",  "writer")
-    graph.add_edge("writer",       "reviewer")
+    graph.add_conditional_edges(
+        "retry_counter",
+        fan_out_or_cache,
+        {"cache_loader": "cache_loader", "researcher": "researcher"},
+    )
 
-    # Reviewer conditional: pass → END, fail → writer
+    graph.add_edge("analyst",     "synthesizer")
+    graph.add_edge("synthesizer", "writer")
+    graph.add_edge("writer",      "reviewer")
+
     graph.add_conditional_edges(
         "reviewer",
         _should_revise,
-        {
-            "end":    END,
-            "revise": "writer",
-        },
+        {"end": END, "revise": "writer"},
     )
 
     return graph.compile()
 
+
+# ═══════════════════════════════════════════════
+# Pipeline runner
+# ═══════════════════════════════════════════════
 
 def run_pipeline(query: str) -> dict:
     start_logger()
@@ -199,8 +304,8 @@ def run_pipeline(query: str) -> dict:
         report_path = write_report(result, run_id=run_id)
         logger.info(f"Report saved → {report_path}")
 
-        review         = result.get("review", {})
-        revision_count = result.get("revision_count", 0)
+        review          = result.get("review", {})
+        revision_count  = result.get("revision_count", 0)
         quality_retries = result.get("quality_retries", 0)
 
         trace = result.get("pipeline_trace", [])

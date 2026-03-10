@@ -2,17 +2,17 @@
 # ─────────────────────────────────────────────
 # Two-level cache with semantic similarity fallback.
 #
-# Level 1 — exact hash match (O(1), instant):
-#   SHA256(normalised_query) → results
+# Level 1 — exact hash match (O(1), instant)
+# Level 2 — semantic similarity via all-MiniLM-L6-v2 embeddings
 #
-# Level 2 — semantic similarity (O(n) over cached entries):
-#   embed(query) → cosine_similarity against all stored embeddings
-#   → return best match above similarity_threshold (read from configs/base.yaml)
-#
-# Embedding model: all-MiniLM-L6-v2 via sentence-transformers
-#   - Local inference, no API cost, no network latency
-#   - ~30-50ms on CPU per query
-#   - 384-dimensional vectors, purpose-built for semantic similarity
+# Performance design:
+#   - HF_HUB_OFFLINE=1 is set before model load so huggingface_hub
+#     never makes network calls after the first download.
+#     local_files_only=True is NOT sufficient — sentence-transformers v3
+#     routes through huggingface_hub which does its own cache validation
+#     HEAD requests regardless of that flag.
+#   - store() is called from a daemon background thread (see graph.py
+#     merge_research_node) so the pipeline never waits for the write.
 # ─────────────────────────────────────────────
 
 from __future__ import annotations
@@ -35,29 +35,71 @@ _DB_PATH = os.path.join(
     "research_cache.db",
 )
 
-# Lazy-loaded — only imported on first cache miss to avoid adding
-# ~200ms startup overhead to every run.
 _embedder = None
 
 
 def _get_similarity_threshold() -> float:
-    """Read threshold from config each call — picks up live changes."""
-    return float(get_cache_config().get("similarity_threshold", 0.85))
+    return float(get_cache_config().get("similarity_threshold", 0.60))
 
 
 def _get_embedder():
+    """
+    Load sentence-transformer model once per process with zero network calls.
+
+    HF_HUB_OFFLINE=1 is set before loading — this is the env var that
+    huggingface_hub actually checks before every network call. Setting it
+    prevents all HEAD/GET requests to huggingface.co on subsequent runs.
+
+    If the model is not yet cached locally (first-ever run), the offline
+    attempt raises an exception, we clear the env var, download the model
+    once (~80MB), then the next run will use offline mode.
+    """
     global _embedder
-    if _embedder is None:
+    if _embedder is not None:
+        return _embedder
+
+    try:
+        # Suppress INFO noise from sentence-transformers, transformers, HF hub
+        for noisy_logger in (
+            "sentence_transformers",
+            "transformers",
+            "huggingface_hub",
+            "huggingface_hub.utils._http",
+        ):
+            logging.getLogger(noisy_logger).setLevel(logging.ERROR)
+
+        from sentence_transformers import SentenceTransformer
+
+        # ── Fast path: model already on disk, no network ──────────────────
+        # Set HF_HUB_OFFLINE=1 before load — huggingface_hub checks this flag
+        # before every HTTP call. local_files_only=True alone is insufficient
+        # in sentence-transformers v3 (library still validates cache via HEAD).
+        prev_offline = os.environ.get("HF_HUB_OFFLINE")
+        os.environ["HF_HUB_OFFLINE"] = "1"
         try:
-            from sentence_transformers import SentenceTransformer
-            logger.info("[cache] loading embedding model all-MiniLM-L6-v2...")
             _embedder = SentenceTransformer("all-MiniLM-L6-v2")
-            logger.info("[cache] embedding model loaded")
-        except ImportError:
-            logger.warning(
-                "[cache] sentence-transformers not installed — "
-                "semantic similarity disabled. Run: uv add sentence-transformers"
-            )
+            logger.info("[cache] embedding model loaded (offline, no network)")
+        except Exception:
+            # ── Slow path: first-ever run, model not cached ───────────────
+            # Restore previous offline setting (probably unset) and download
+            if prev_offline is None:
+                del os.environ["HF_HUB_OFFLINE"]
+            else:
+                os.environ["HF_HUB_OFFLINE"] = prev_offline
+
+            logger.info("[cache] downloading embedding model all-MiniLM-L6-v2 (one-time ~80MB)...")
+            _embedder = SentenceTransformer("all-MiniLM-L6-v2")
+            logger.info("[cache] embedding model downloaded and cached")
+
+            # Set offline for remainder of this process now that it's cached
+            os.environ["HF_HUB_OFFLINE"] = "1"
+
+    except ImportError:
+        logger.warning(
+            "[cache] sentence-transformers not installed — "
+            "semantic similarity disabled. Run: uv add sentence-transformers"
+        )
+
     return _embedder
 
 
@@ -66,7 +108,7 @@ def _embed(text: str) -> Optional[list[float]]:
     if embedder is None:
         return None
     try:
-        vec = embedder.encode(text, convert_to_numpy=True)
+        vec = embedder.encode(text, convert_to_numpy=True, show_progress_bar=False)
         return vec.tolist()
     except Exception as e:
         logger.warning(f"[cache] embed error: {e}")
@@ -127,9 +169,9 @@ def _hash_query(query: str) -> str:
 
 def fetch(query: str) -> Optional[list[dict]]:
     """
-    Two-level cache lookup:
-      1. Exact SHA256 match — O(1), zero compute
-      2. Semantic similarity — threshold read from configs/base.yaml cache.similarity_threshold
+    Two-level cache lookup.
+    Level 1: exact SHA256 — O(1), zero compute.
+    Level 2: semantic similarity — embeds query, scans fresh entries.
     """
     cfg = get_cache_config()
     if not cfg.get("enabled", True):
@@ -182,7 +224,7 @@ def fetch(query: str) -> Optional[list[dict]]:
         return None
 
     if not rows:
-        logger.debug(f"[cache] MISS (no candidates for semantic search): '{query[:50]}'")
+        logger.debug(f"[cache] MISS (no candidates): '{query[:50]}'")
         return None
 
     best_score = 0.0
@@ -204,7 +246,7 @@ def fetch(query: str) -> Optional[list[dict]]:
             )
         age_min = int((now - best_row["created_at"]) / 60)
         logger.info(
-            f"[cache] SEMANTIC HIT (score={best_score:.3f}, threshold={threshold}, "
+            f"[cache] SEMANTIC HIT (score={best_score:.3f} >= threshold={threshold}, "
             f"{age_min}min old) | "
             f"'{query[:40]}' → matched '{best_row['query'][:40]}'"
         )
@@ -218,6 +260,11 @@ def fetch(query: str) -> Optional[list[dict]]:
 
 
 def store(query: str, results: list[dict], tool_used: str = "unknown") -> None:
+    """
+    Store search results + embedding in cache.
+    Thread-safe — called from a daemon background thread in graph.py so the
+    pipeline never blocks on the ~40ms embedding compute + SQLite write.
+    """
     if not get_cache_config().get("enabled", True):
         return
 

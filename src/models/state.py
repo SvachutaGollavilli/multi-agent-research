@@ -15,20 +15,30 @@ from pydantic import BaseModel, Field
 class ResearchState(TypedDict, total=False):
     # ── Run metadata ──────────────────────────
     run_id:  str
-    query:   str
+    query:   str          # original user question — stable, never modified
 
     # ── Planner output ────────────────────────
     sub_topics:    list[str]
     research_plan: str
 
+    # ── Send() fan-out fields ─────────────────
+    # current_topic is injected per-Send() invocation so each parallel
+    # researcher knows which sub-topic to search. Not set in initial state.
+    current_topic:  str
+    # force_research bypasses cache on quality-gate retries so we don't
+    # return the same low-quality cached results on a retry.
+    force_research: bool
+
     # ── Researcher output (parallel-safe) ─────
+    # operator.add: three parallel researchers each append their sources;
+    # LangGraph concatenates all three lists before the next node runs.
     sources:             Annotated[list[dict], operator.add]
     search_queries_used: Annotated[list[str],  operator.add]
 
     # ── Quality gate output ───────────────────
     quality_score:   float
     quality_passed:  bool
-    quality_retries: int   # counts researcher retries triggered by quality gate
+    quality_retries: int
 
     # ── Analyst output ────────────────────────
     key_claims: list[dict]
@@ -62,6 +72,8 @@ def default_state(query: str, run_id: str = "") -> dict:
         "query":               query,
         "sub_topics":          [],
         "research_plan":       "",
+        "current_topic":       "",
+        "force_research":      False,
         "sources":             [],
         "search_queries_used": [],
         "quality_score":       0.0,

@@ -1,56 +1,103 @@
-from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import HumanMessage, SystemMessage
+# src/agents/planner.py
+
+from __future__ import annotations
+
+import logging
+import time
+
 from dotenv import load_dotenv
-from src.models.state import ResearchState
-import os
+from langchain_anthropic import ChatAnthropic
+
+from src.config import get_max_tokens, get_model
+from src.models.state import PlannerOutput, ResearchState
+from src.observability.cost import calculate_cost, extract_token_usage
+from src.observability.logger import log_agent_end, log_agent_start, log_cost
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
-llm = ChatAnthropic(
-    model="claude-haiku-4-5-20251001",
-    api_key=os.getenv("ANTHROPIC_API_KEY"),
-    max_tokens=1024
+# ── LLM singleton ──────────────────────────────
+# Created once at import — not inside the function.
+# config is read here so if YAML changes, reload the module.
+_llm = ChatAnthropic(
+    model=get_model("planner"),
+    max_tokens=get_max_tokens("planner"),
 )
 
 
-def planner_agent(state: ResearchState) -> ResearchState:
+def planner_agent(state: ResearchState) -> dict:
     """
-    The Planner Agent:
-    - Takes the user's raw query
-    - Uses the LLM to rewrite it into a clear, focused research question
-    - Stores the refined question back in state as the query
+    Planner Agent:
+    - Decomposes the query into 1-3 focused sub-topics
+    - Returns sub_topics + research_plan for the parallel researchers
+    - Uses with_structured_output() — guaranteed PlannerOutput schema
     """
+    run_id = state.get("run_id", "")
+    query  = state.get("query", "")
+    event_id, t0 = log_agent_start(run_id, "planner", {"query": query})
 
-    print(f"\n  Planner Agent starting...")
-    print(f"   Original query: '{state.query}'")
+    logger.info(f"[planner] starting | query: '{query[:60]}'")
 
     try:
-        messages = [
-            SystemMessage(content=(
-                "You are a research planner. Your job is to take a user's question "
-                "and rewrite it as a single, focused, well-scoped research question. "
-                "Make it specific and answerable. "
-                "Return ONLY the rewritten question, nothing else."
-            )),
-            HumanMessage(content=f"User question: {state.query}")
-        ]
+        from src.config import get_pipeline_config
+        max_topics = get_pipeline_config().get("max_sub_topics", 3)
 
-        refined_question = llm.invoke(messages).content.strip()
-        print(f"  Refined question: '{refined_question}'")
+        # include_raw=True returns {"raw": AIMessage, "parsed": PlannerOutput}
+        structured_llm = _llm.with_structured_output(PlannerOutput, include_raw=True)
 
-        # Write the improved question back to state
-        return ResearchState(
-            query=refined_question,        # ← overwrites with better question
-            search_results=state.search_results,
-            report=state.report,
-            error=None
+        raw_result = structured_llm.invoke(
+            f"You are a research planner. Break this query into "
+            f"1-{max_topics} focused, searchable sub-questions.\n\n"
+            f"Query: {query}\n\n"
+            f"Return {max_topics} sub-topics and a brief research strategy."
+            )
+
+        # parsed is the PlannerOutput Pydantic object
+        # raw is the AIMessage that carries usage_metadata
+        result: PlannerOutput = raw_result["parsed"]
+        raw_message           = raw_result["raw"]
+
+        sub_topics = result.sub_topics[:max_topics]
+        logger.info(f"[planner] decomposed into {len(sub_topics)} sub-topics")
+
+        # Now extract from the raw AIMessage — this has usage_metadata
+        usage = extract_token_usage(raw_message)
+        cost_record = calculate_cost(
+            model=get_model("planner"),
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            agent_name="planner",
+            run_id=run_id,
         )
+        log_cost(cost_record)
+        log_agent_end(event_id, run_id, "planner", t0,
+                      tokens_used=usage.total_tokens,
+                      cost_usd=cost_record.cost_usd)
+
+        return {
+            "sub_topics":    sub_topics,
+            "research_plan": result.research_plan,
+            "token_count":   usage.total_tokens,
+            "cost_usd":      cost_record.cost_usd,
+            "pipeline_trace": [{
+                "agent":    "planner",
+                "duration_ms": int((time.time() - t0) * 1000),
+                "tokens":   usage.total_tokens,
+                "summary":  f"Decomposed into {len(sub_topics)} sub-topics",
+            }],
+        }
 
     except Exception as e:
-        print(f"   Planner failed: {e}")
-        return ResearchState(
-            query=state.query,             # ← fall back to original if error
-            search_results=state.search_results,
-            report=state.report,
-            error=str(e)
-        )
+        logger.error(f"[planner] failed: {e}")
+        log_agent_end(event_id, run_id, "planner", t0, error=str(e))
+        # Fallback — use original query as single sub-topic
+        return {
+            "sub_topics":    [query],
+            "research_plan": "Direct research (planner error)",
+            "errors":        [f"Planner error: {e}"],
+            "pipeline_trace": [{
+                "agent":   "planner",
+                "duration_ms": int((time.time() - t0) * 1000),
+                "summary": f"Error — fallback to direct query",
+            }],
+        }

@@ -190,7 +190,6 @@ def start_run(query: str) -> str:
     """
     Register a new pipeline run in the DB.
     Returns a fresh run_id (UUID) — store this in state["run_id"].
-
     Call at the very beginning of graph execution.
     """
     run_id = str(uuid.uuid4())
@@ -209,27 +208,41 @@ def end_run(
     accumulator: RunCostAccumulator,
     final_report: str = "",
     status: str = "completed",
+    total_tokens: Optional[int] = None,
+    total_cost: Optional[float] = None,
 ) -> None:
     """
-    Mark a pipeline run as finished.
-    Writes final token count, cost, report, and status to DB.
+    Mark a pipeline run as finished in the DB.
 
-    Call at the very end of graph execution (or on error).
+    total_tokens / total_cost: pass these directly from the final
+    LangGraph result dict (result["token_count"], result["cost_usd"]).
+    When provided, they override the accumulator's running totals —
+    this is the authoritative source since operator.add reducers
+    accumulated them correctly across all parallel agents.
+
+    When NOT provided, falls back to accumulator.summary() values.
     """
     summary = accumulator.summary()
+
+    # Direct values from the result dict are authoritative.
+    # The accumulator is a fallback for cases where we don't have result.
+    final_tokens = total_tokens if total_tokens is not None else summary["total_tokens"]
+    final_cost   = total_cost   if total_cost   is not None else summary["total_cost"]
+
     _enqueue({
         "type":         "run_end",
         "run_id":       run_id,
         "status":       status,
         "finished_at":  time.time(),
-        "total_tokens": summary["total_tokens"],
-        "total_cost":   summary["total_cost"],
+        "total_tokens": final_tokens,
+        "total_cost":   round(final_cost, 8),
         "final_report": final_report,
     })
+
     logger.info(
         f"Run ended: {run_id[:8]}... | status: {status} | "
-        f"tokens: {summary['total_tokens']} | "
-        f"cost: ${summary['total_cost']:.4f}"
+        f"tokens: {final_tokens} | "
+        f"cost: ${final_cost:.6f}"
     )
 
 
@@ -241,16 +254,10 @@ def log_agent_start(
     """
     Log that an agent has started.
     Returns (event_id, start_time) — pass both to log_agent_end().
-
-    Usage in every agent:
-        event_id, t0 = log_agent_start(state["run_id"], "researcher", state)
-        # ... do work ...
-        log_agent_end(event_id, state["run_id"], "researcher", t0)
     """
     event_id   = str(uuid.uuid4())
     start_time = time.time()
 
-    # Hash the input state for debugging (lets you trace what an agent received)
     input_hash = _hash_state(input_state) if input_state is not None else None
 
     _enqueue({
@@ -284,7 +291,7 @@ def log_agent_end(
 
     _enqueue({
         "type":        "agent_event",
-        "event_id":    event_id + "_end",   # separate row for end event
+        "event_id":    event_id + "_end",
         "run_id":      run_id,
         "agent_name":  agent_name,
         "status":      status,
@@ -298,9 +305,11 @@ def log_agent_end(
     if error:
         logger.error(f"[{agent_name}] FAILED in {duration_ms}ms — {error}")
     else:
-        logger.debug(
-            f"[{agent_name}] completed in {duration_ms}ms | "
-            f"tokens: {tokens_used} | cost: ${cost_usd:.6f}"
+        logger.info(
+            f"[{agent_name}] completed | "
+            f"{duration_ms}ms | "
+            f"tokens: {tokens_used} | "
+            f"cost: ${cost_usd:.6f}"
         )
 
 
@@ -329,8 +338,7 @@ def log_cost(record: CostRecord) -> None:
 def _enqueue(item: dict) -> None:
     """
     Push an item onto the write queue.
-    If queue is full, drop the item rather than blocking the agent.
-    Dropped items are logged as warnings — never silently lost.
+    If full, drop rather than block the agent.
     """
     try:
         _write_queue.put_nowait(item)
@@ -342,10 +350,7 @@ def _enqueue(item: dict) -> None:
 
 
 def _hash_state(state: Any) -> str:
-    """
-    Create a short SHA256 hash of the input state for debugging.
-    Lets you trace exactly what an agent received without storing full state.
-    """
+    """SHA256 hash of input state for debugging — stored in agent_events."""
     try:
         raw = json.dumps(state, default=str, sort_keys=True)
         return hashlib.sha256(raw.encode()).hexdigest()[:12]
@@ -358,10 +363,8 @@ def _hash_state(state: Any) -> str:
 # ═══════════════════════════════════════════════
 
 if __name__ == "__main__":
-    import time
     from src.observability.cost import calculate_cost, RunCostAccumulator
 
-    # Configure basic logging so we can see output
     logging.basicConfig(
         level=logging.DEBUG,
         format="%(asctime)s | %(name)s | %(levelname)s | %(message)s"
@@ -370,17 +373,14 @@ if __name__ == "__main__":
     print("Starting logger...")
     start_logger()
 
-    # Simulate a full pipeline run
-    acc = RunCostAccumulator(run_id="")
+    acc    = RunCostAccumulator(run_id="")
     run_id = start_run("How does LangGraph handle parallel execution?")
     acc.run_id = run_id
 
-    # Simulate 3 agents running sequentially
     for agent_name in ["planner", "researcher", "writer"]:
         event_id, t0 = log_agent_start(run_id, agent_name)
-        time.sleep(0.05)               # simulate work
+        time.sleep(0.05)
 
-        # Simulate token usage
         rec = calculate_cost(
             model="claude-haiku-4-5-20251001",
             input_tokens=800,
@@ -394,27 +394,20 @@ if __name__ == "__main__":
                       tokens_used=rec.total_tokens,
                       cost_usd=rec.cost_usd)
 
-    end_run(run_id, acc, final_report="Test report content.", status="completed")
+    # Pass totals directly — simulates what graph.py does with result dict
+    end_run(
+        run_id, acc,
+        final_report="Test report.",
+        status="completed",
+        total_tokens=acc.total_tokens,
+        total_cost=acc.total_cost,
+    )
 
-    # Give drain thread time to flush
     print("Waiting for queue to flush...")
     _write_queue.join()
     stop_logger()
 
-    # Verify DB
-    print("\nDB stats after test run:")
+    print("\nDB stats:")
     stats = db.get_db_stats()
     for k, v in stats.items():
         print(f"  {k}: {v}")
-
-    runs = db.fetchall("SELECT run_id, query, status, total_cost FROM pipeline_runs")
-    print(f"\nPipeline runs in DB: {len(runs)}")
-    for r in runs:
-        print(f"  {r['run_id'][:8]}... | {r['status']} | ${r['total_cost']:.6f}")
-
-    events = db.fetchall(
-        "SELECT agent_name, status, duration_ms FROM agent_events ORDER BY started_at"
-    )
-    print(f"\nAgent events in DB: {len(events)}")
-    for e in events:
-        print(f"  {e['agent_name']:12s} | {e['status']:10s} | {e['duration_ms']} ms")

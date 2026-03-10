@@ -1,60 +1,76 @@
-from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import HumanMessage, SystemMessage
+# src/agents/researcher.py
+
+from __future__ import annotations
+
+import logging
+import time
+
 from dotenv import load_dotenv
+
+from src.config import get_search_config
 from src.models.state import ResearchState
+from src.observability.logger import log_agent_end, log_agent_start
 from src.tools.search import search_web
-import os
 
 load_dotenv()
-
-# Initialize LLM once (not inside the function — avoids re-init on every call)
-llm = ChatAnthropic(
-    model="claude-haiku-4-5-20251001",
-    api_key=os.getenv("ANTHROPIC_API_KEY"),  # ← fixed: api_key, not api_keys
-    max_tokens=1024
-)
+logger = logging.getLogger(__name__)
 
 
-def researcher_agent(state: ResearchState) -> ResearchState:
+def researcher_agent(state: ResearchState) -> dict:
     """
-    The Researcher Agent:
-    - Takes the user query from state
-    - Asks the LLM to refine the query for better search results
+    Researcher Agent:
+    - Receives a single sub-topic (or the full query) as state["query"]
     - Searches the web using Tavily
-    - Writes search results back to shared state
-    """
+    - Returns sources list (operator.add merges parallel results)
 
-    print(f"\n🔍 Researcher Agent starting for query: '{state.query}'")
+    In parallel fan-out mode, LangGraph calls this once per sub-topic
+    via Send(), each with its own sub-topic as the query.
+    """
+    run_id = state.get("run_id", "")
+    query  = state.get("query", "")
+    event_id, t0 = log_agent_start(run_id, "researcher", {"query": query})
+
+    logger.info(f"[researcher] searching | query: '{query[:60]}'")
 
     try:
-        # Step 1: Search the web with the refined query
-        results = search_web(state.query, max_results=5)
-        print(f"  Found {len(results)} results")
+        search_cfg  = get_search_config()
+        max_results = search_cfg.get("max_results", 5)
 
-        # Step 2: Write results back to shared state
-        return ResearchState(
-            query=state.query,
-            search_results=results,
-            report=state.report,
-            error=None
-        )
+        results = search_web(query, max_results=max_results)
+
+        # Deduplicate by URL — parallel researchers may find the same source
+        seen_urls: set[str] = set()
+        unique: list[dict]  = []
+        for r in results:
+            url = r.get("url", "")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                unique.append(r)
+
+        logger.info(f"[researcher] found {len(unique)} unique sources")
+        log_agent_end(event_id, run_id, "researcher", t0)
+
+        return {
+            "sources":             unique,
+            "search_queries_used": [query],
+            "pipeline_trace": [{
+                "agent":       "researcher",
+                "duration_ms": int((time.time() - t0) * 1000),
+                "tokens":      0,
+                "summary":     f"Found {len(unique)} sources for '{query[:40]}'",
+            }],
+        }
 
     except Exception as e:
-        print(f"  Researcher failed: {e}")
-        return ResearchState(
-            query=state.query,
-            search_results=[],
-            report=None,
-            error=str(e)
-        )
-
-
-if __name__ == "__main__":
-    test_state = ResearchState(query=str(input("Enter your query: ")))
-    result_state = researcher_agent(test_state)
-
-    print(f"\n📊 Results found: {len(result_state.search_results)}")
-    for r in result_state.search_results:
-        print("=" * 50)
-        print(f"  {r['title']}")
-        print(f"  {r['url']}")
+        logger.error(f"[researcher] failed: {e}")
+        log_agent_end(event_id, run_id, "researcher", t0, error=str(e))
+        return {
+            "sources":             [],
+            "search_queries_used": [query],
+            "errors":              [f"Researcher error: {e}"],
+            "pipeline_trace": [{
+                "agent":   "researcher",
+                "duration_ms": int((time.time() - t0) * 1000),
+                "summary": f"Error: {e}",
+            }],
+        }

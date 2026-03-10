@@ -15,15 +15,12 @@ models:
   default:     "claude-haiku-4-5-20251001"
 
 # ── Token limits per agent ─────────────────────
-# Tighter ceilings = faster responses.
-# Rule: set to ~1.5x the typical output, not the maximum possible.
-# Actual outputs observed: planner~100, analyst~800, writer~900 tokens.
 max_tokens:
-  planner:     256    # structured output: sub_topics + plan — never long
-  researcher:  256    # no LLM call currently; placeholder for future query refinement
-  analyst:     768    # claims JSON — 6-8 claims, each ~80 tokens = ~640 tokens
+  planner:     256
+  researcher:  256
+  analyst:     768
   synthesizer: 1024
-  writer:      1500   # markdown report ~900 tokens observed; 1500 is safe headroom
+  writer:      1500
   reviewer:    512
   default:     512
 
@@ -47,8 +44,13 @@ pipeline:
 
 # ── Cache ──────────────────────────────────────
 cache:
-  ttl_seconds: 86400
-  enabled:     true
+  ttl_seconds:          86400
+  enabled:              true
+  similarity_threshold: 0.85  # cosine similarity cutoff for semantic cache hits
+                               # 1.0 = exact match only
+                               # 0.85 = catches paraphrases ("what is X" / "explain X")
+                               # 0.70 = aggressive — risks false positives
+                               # <0.70 = different topic, always a true miss
 
 # ── Rate limiting ──────────────────────────────
 rate_limiter:

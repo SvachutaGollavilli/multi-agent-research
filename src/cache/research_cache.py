@@ -7,7 +7,7 @@
 #
 # Level 2 — semantic similarity (O(n) over cached entries):
 #   embed(query) → cosine_similarity against all stored embeddings
-#   → return best match above SIMILARITY_THRESHOLD
+#   → return best match above similarity_threshold (read from configs/base.yaml)
 #
 # Embedding model: all-MiniLM-L6-v2 via sentence-transformers
 #   - Local inference, no API cost, no network latency
@@ -35,21 +35,17 @@ _DB_PATH = os.path.join(
     "research_cache.db",
 )
 
-# Cosine similarity threshold for semantic cache hits.
-# 0.85 catches paraphrases ("what is X" / "explain X" / "define X")
-# without false-positives on genuinely different queries.
-SIMILARITY_THRESHOLD = 0.85
-
 # Lazy-loaded — only imported on first cache miss to avoid adding
 # ~200ms startup overhead to every run.
 _embedder = None
 
 
+def _get_similarity_threshold() -> float:
+    """Read threshold from config each call — picks up live changes."""
+    return float(get_cache_config().get("similarity_threshold", 0.85))
+
+
 def _get_embedder():
-    """
-    Load the sentence-transformer model once, cache in module-level variable.
-    all-MiniLM-L6-v2: 80MB, 384-dim, ~30-50ms per encode on CPU.
-    """
     global _embedder
     if _embedder is None:
         try:
@@ -66,10 +62,6 @@ def _get_embedder():
 
 
 def _embed(text: str) -> Optional[list[float]]:
-    """
-    Embed a query string → list of 384 floats.
-    Returns None if embedder unavailable (graceful degradation).
-    """
     embedder = _get_embedder()
     if embedder is None:
         return None
@@ -82,11 +74,6 @@ def _embed(text: str) -> Optional[list[float]]:
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    """
-    Cosine similarity between two equal-length float vectors.
-    Pure Python — fast enough for small caches (<1000 entries).
-    Returns value in [-1, 1]; 1.0 = identical direction.
-    """
     dot    = sum(x * y for x, y in zip(a, b))
     norm_a = sum(x * x for x in a) ** 0.5
     norm_b = sum(x * x for x in b) ** 0.5
@@ -105,10 +92,6 @@ def _get_conn() -> sqlite3.Connection:
 
 
 def _ensure_table() -> None:
-    """
-    Create/migrate the cache table.
-    Adds 'embedding' column to existing tables if missing (backward-compatible).
-    """
     with _get_conn() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS query_cache (
@@ -118,13 +101,12 @@ def _ensure_table() -> None:
                 tool_used   TEXT NOT NULL,
                 created_at  REAL NOT NULL,
                 hit_count   INTEGER DEFAULT 0,
-                embedding   TEXT    DEFAULT NULL  -- JSON float array, 384-dim
+                embedding   TEXT    DEFAULT NULL
             )
         """)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_cache_created ON query_cache(created_at)"
         )
-        # Migrate existing tables that don't have the embedding column yet
         existing_cols = [
             row[1]
             for row in conn.execute("PRAGMA table_info(query_cache)").fetchall()
@@ -138,7 +120,6 @@ _ensure_table()
 
 
 def _hash_query(query: str) -> str:
-    """SHA256 of lowercased, stripped query — exact match key."""
     return hashlib.sha256(query.strip().lower().encode()).hexdigest()
 
 
@@ -148,9 +129,7 @@ def fetch(query: str) -> Optional[list[dict]]:
     """
     Two-level cache lookup:
       1. Exact SHA256 match — O(1), zero compute
-      2. Semantic similarity — embeds query, scans all fresh entries
-
-    Returns list[dict] on any hit, None on complete miss.
+      2. Semantic similarity — threshold read from configs/base.yaml cache.similarity_threshold
     """
     cfg = get_cache_config()
     if not cfg.get("enabled", True):
@@ -168,7 +147,6 @@ def fetch(query: str) -> Optional[list[dict]]:
                 "SELECT results, created_at FROM query_cache WHERE query_hash = ?",
                 (exact_key,),
             ).fetchone()
-
         if row and row["created_at"] >= cutoff:
             with _get_conn() as conn:
                 conn.execute(
@@ -176,9 +154,7 @@ def fetch(query: str) -> Optional[list[dict]]:
                     (exact_key,),
                 )
             age_min = int((now - row["created_at"]) / 60)
-            logger.info(
-                f"[cache] EXACT HIT ({age_min}min old): '{query[:50]}'"
-            )
+            logger.info(f"[cache] EXACT HIT ({age_min}min old): '{query[:50]}'")
             return json.loads(row["results"])
     except Exception as e:
         logger.error(f"[cache] exact fetch error: {e}")
@@ -189,9 +165,10 @@ def fetch(query: str) -> Optional[list[dict]]:
         logger.debug(f"[cache] MISS (embedder unavailable): '{query[:50]}'")
         return None
 
+    threshold = _get_similarity_threshold()
+
     try:
         with _get_conn() as conn:
-            # Only load fresh entries that have embeddings stored
             rows = conn.execute(
                 """
                 SELECT query_hash, query, results, created_at, embedding
@@ -208,22 +185,18 @@ def fetch(query: str) -> Optional[list[dict]]:
         logger.debug(f"[cache] MISS (no candidates for semantic search): '{query[:50]}'")
         return None
 
-    # Find best semantic match
     best_score = 0.0
     best_row   = None
-
     for row in rows:
         try:
-            cached_vec = json.loads(row["embedding"])
-            score      = _cosine_similarity(query_vec, cached_vec)
+            score = _cosine_similarity(query_vec, json.loads(row["embedding"]))
             if score > best_score:
                 best_score = score
                 best_row   = row
         except Exception:
             continue
 
-    if best_score >= SIMILARITY_THRESHOLD and best_row is not None:
-        # Bump hit count on the matched entry
+    if best_score >= threshold and best_row is not None:
         with _get_conn() as conn:
             conn.execute(
                 "UPDATE query_cache SET hit_count = hit_count + 1 WHERE query_hash = ?",
@@ -231,29 +204,25 @@ def fetch(query: str) -> Optional[list[dict]]:
             )
         age_min = int((now - best_row["created_at"]) / 60)
         logger.info(
-            f"[cache] SEMANTIC HIT (score={best_score:.3f}, {age_min}min old) | "
+            f"[cache] SEMANTIC HIT (score={best_score:.3f}, threshold={threshold}, "
+            f"{age_min}min old) | "
             f"'{query[:40]}' → matched '{best_row['query'][:40]}'"
         )
         return json.loads(best_row["results"])
 
     logger.info(
-        f"[cache] MISS (best_score={best_score:.3f} < {SIMILARITY_THRESHOLD}): "
+        f"[cache] MISS (best_score={best_score:.3f} < threshold={threshold}): "
         f"'{query[:50]}'"
     )
     return None
 
 
 def store(query: str, results: list[dict], tool_used: str = "unknown") -> None:
-    """
-    Store search results + query embedding in the cache.
-    Embedding is computed here so fetch() gets instant similarity on next lookup.
-    """
     if not get_cache_config().get("enabled", True):
         return
 
     key = _hash_query(query)
 
-    # URL dedup
     seen_urls: set = set()
     unique: list[dict] = []
     for r in results:
@@ -262,7 +231,6 @@ def store(query: str, results: list[dict], tool_used: str = "unknown") -> None:
             seen_urls.add(url)
             unique.append(r)
 
-    # Compute embedding at write time — pays cost once, not on every fetch
     embedding_json: Optional[str] = None
     vec = _embed(query.strip())
     if vec is not None:
@@ -276,25 +244,15 @@ def store(query: str, results: list[dict], tool_used: str = "unknown") -> None:
                     (query_hash, query, results, tool_used, created_at, hit_count, embedding)
                 VALUES (?, ?, ?, ?, ?, 0, ?)
                 """,
-                (
-                    key,
-                    query.strip(),
-                    json.dumps(unique),
-                    tool_used,
-                    time.time(),
-                    embedding_json,
-                ),
+                (key, query.strip(), json.dumps(unique), tool_used, time.time(), embedding_json),
             )
-        embedded_label = "with embedding" if embedding_json else "no embedding"
-        logger.debug(
-            f"[cache] STORE ({len(unique)} results, {embedded_label}): '{query[:50]}'"
-        )
+        label = "with embedding" if embedding_json else "no embedding"
+        logger.debug(f"[cache] STORE ({len(unique)} results, {label}): '{query[:50]}'")
     except Exception as e:
         logger.error(f"[cache] store error: {e}")
 
 
 def invalidate(query: str) -> None:
-    """Force-expire a single cache entry."""
     key = _hash_query(query)
     try:
         with _get_conn() as conn:
@@ -305,7 +263,6 @@ def invalidate(query: str) -> None:
 
 
 def evict_stale() -> int:
-    """Delete all entries older than TTL. Returns count deleted."""
     ttl    = get_cache_config().get("ttl_seconds", 86400)
     cutoff = time.time() - ttl
     try:
@@ -322,28 +279,27 @@ def evict_stale() -> int:
 
 
 def stats() -> dict:
-    """Return cache statistics for the dashboard."""
     try:
         with _get_conn() as conn:
-            total   = conn.execute("SELECT COUNT(*) FROM query_cache").fetchone()[0]
-            ttl     = get_cache_config().get("ttl_seconds", 86400)
-            cutoff  = time.time() - ttl
-            fresh   = conn.execute(
+            total    = conn.execute("SELECT COUNT(*) FROM query_cache").fetchone()[0]
+            ttl      = get_cache_config().get("ttl_seconds", 86400)
+            cutoff   = time.time() - ttl
+            fresh    = conn.execute(
                 "SELECT COUNT(*) FROM query_cache WHERE created_at >= ?", (cutoff,)
             ).fetchone()[0]
-            hits    = conn.execute(
+            hits     = conn.execute(
                 "SELECT SUM(hit_count) FROM query_cache"
             ).fetchone()[0] or 0
             with_emb = conn.execute(
                 "SELECT COUNT(*) FROM query_cache WHERE embedding IS NOT NULL"
             ).fetchone()[0]
         return {
-            "total_entries":    total,
-            "fresh_entries":    fresh,
-            "stale_entries":    total - fresh,
-            "total_hits":       hits,
-            "with_embeddings":  with_emb,
-            "similarity_threshold": SIMILARITY_THRESHOLD,
+            "total_entries":        total,
+            "fresh_entries":        fresh,
+            "stale_entries":        total - fresh,
+            "total_hits":           hits,
+            "with_embeddings":      with_emb,
+            "similarity_threshold": _get_similarity_threshold(),
         }
     except Exception as e:
         logger.error(f"[cache] stats error: {e}")

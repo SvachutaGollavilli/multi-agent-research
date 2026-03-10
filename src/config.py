@@ -77,6 +77,7 @@ def get_pipeline_config() -> dict[str, Any]:
     return cfg.get("pipeline", {
         "max_sub_topics": 3, "max_revisions": 2,
         "quality_threshold": 0.4, "review_pass_score": 7,
+        "max_quality_retries": 1,
     })
 
 
@@ -87,6 +88,16 @@ def get_cache_config() -> dict[str, Any]:
         "enabled": True,
         "similarity_threshold": 0.85,
     })
+
+
+def get_quality_gate_config() -> dict[str, Any]:
+    """
+    Return quality gate heuristic settings.
+    All domain lists and scoring weights live in base.yaml — no code changes
+    needed to add/remove trusted domains or tune scoring.
+    """
+    cfg = load_config()
+    return cfg.get("quality_gate", _default_quality_gate())
 
 
 def get_rate_limit_rpm() -> int:
@@ -102,6 +113,41 @@ def get_log_level() -> str:
 def get_queue_max_size() -> int:
     cfg = load_config()
     return int(cfg.get("logging", {}).get("queue_max_size", 1000))
+
+
+def _default_quality_gate() -> dict:
+    return {
+        "domain_weight":   0.5,
+        "snippet_weight":  0.5,
+        "snippet_min_chars":  100,
+        "snippet_max_chars":  300,
+        "boilerplate_penalty": 0.3,
+        "domain_trust_high":    1.0,
+        "domain_trust_medium":  0.6,
+        "domain_trust_low":     0.2,
+        "domain_trust_neutral": 0.4,
+        "high_trust_domains": [
+            "wikipedia.org", "arxiv.org", "nature.com", "science.org",
+            "pubmed.ncbi.nlm.nih.gov", "scholar.google.com", "britannica.com",
+            "mit.edu", "stanford.edu", "harvard.edu", "ieee.org", "acm.org",
+            "bbc.com", "reuters.com", "apnews.com",
+        ],
+        "medium_trust_domains": [
+            "medium.com", "towardsdatascience.com", "github.com",
+            "stackoverflow.com", "techcrunch.com", "wired.com",
+            "theverge.com", "zdnet.com", "venturebeat.com",
+            "analyticsvidhya.com", "kdnuggets.com", "neptune.ai",
+        ],
+        "low_trust_domains": [
+            "reddit.com", "quora.com", "yahoo.com", "answers.com",
+        ],
+        "boilerplate_phrases": [
+            "click here", "subscribe now", "sign up", "log in to",
+            "cookie policy", "privacy policy", "all rights reserved",
+            "terms of service", "javascript is disabled", "enable javascript",
+            "advertisement",
+        ],
+    }
 
 
 def _default_config() -> dict:
@@ -121,11 +167,11 @@ def _default_config() -> dict:
         "pipeline": {
             "max_sub_topics": 3, "max_revisions": 2,
             "quality_threshold": 0.4, "review_pass_score": 7,
+            "max_quality_retries": 1,
         },
+        "quality_gate": _default_quality_gate(),
         "cache": {
-            "ttl_seconds": 86400,
-            "enabled": True,
-            "similarity_threshold": 0.85,
+            "ttl_seconds": 86400, "enabled": True, "similarity_threshold": 0.85,
         },
         "rate_limiter": {"requests_per_minute": 50},
         "logging":      {"level": "INFO", "queue_max_size": 1000},
@@ -138,6 +184,19 @@ if __name__ == "__main__":
     print("── Models per agent ──")
     for agent in ["planner", "researcher", "analyst", "synthesizer", "writer", "reviewer"]:
         print(f"  {agent:12s} → {get_model(agent)}  (max_tokens: {get_max_tokens(agent)})")
+    print("\n── Pipeline ──")
+    for k, v in get_pipeline_config().items():
+        print(f"  {k}: {v}")
+    print("\n── Quality gate ──")
+    qg = get_quality_gate_config()
+    print(f"  domain_weight:       {qg['domain_weight']}")
+    print(f"  snippet_weight:      {qg['snippet_weight']}")
+    print(f"  snippet_min_chars:   {qg['snippet_min_chars']}")
+    print(f"  snippet_max_chars:   {qg['snippet_max_chars']}")
+    print(f"  boilerplate_penalty: {qg['boilerplate_penalty']}")
+    print(f"  high_trust_domains:  {len(qg['high_trust_domains'])} domains")
+    print(f"  medium_trust_domains:{len(qg['medium_trust_domains'])} domains")
+    print(f"  low_trust_domains:   {len(qg['low_trust_domains'])} domains")
     print("\n── Cache ──")
     for k, v in get_cache_config().items():
         print(f"  {k}: {v}")

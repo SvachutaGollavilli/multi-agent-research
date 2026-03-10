@@ -39,8 +39,83 @@ search:
 pipeline:
   max_sub_topics:    3
   max_revisions:     2
-  quality_threshold: 0.4
-  review_pass_score: 7
+  quality_threshold: 0.4   # minimum composite score to pass quality gate (0.0–1.0)
+  review_pass_score: 7     # minimum reviewer score to accept report (1–10)
+  max_quality_retries: 1   # how many times quality gate can send back to researcher
+
+# ── Quality gate ───────────────────────────────
+# Pure-Python heuristic scorer — no LLM, no cost, runs in <1ms.
+# Composite score = (domain_trust × domain_weight) + (snippet_quality × snippet_weight)
+quality_gate:
+  domain_weight:   0.5   # weight of domain trust in composite score
+  snippet_weight:  0.5   # weight of snippet quality in composite score
+
+  # Minimum snippet length thresholds
+  snippet_min_chars:  100   # below this → snippet quality = 0.0
+  snippet_max_chars:  300   # at or above this → snippet quality = 1.0
+                             # linear interpolation between min and max
+
+  # Boilerplate penalty — deducted from snippet quality score if found
+  boilerplate_penalty: 0.3
+
+  # Domain trust scores (0.0–1.0) by tier
+  # Domains not in any list receive the neutral score
+  domain_trust_high:    1.0   # wikipedia, arxiv, nature, gov, edu domains
+  domain_trust_medium:  0.6   # medium, github, towardsdatascience, etc.
+  domain_trust_low:     0.2   # reddit, quora, yahoo answers, etc.
+  domain_trust_neutral: 0.4   # unknown / unlisted domains
+
+  # Domains by tier (extend these lists freely — no code changes needed)
+  high_trust_domains:
+    - "wikipedia.org"
+    - "arxiv.org"
+    - "nature.com"
+    - "science.org"
+    - "pubmed.ncbi.nlm.nih.gov"
+    - "scholar.google.com"
+    - "britannica.com"
+    - "mit.edu"
+    - "stanford.edu"
+    - "harvard.edu"
+    - "ieee.org"
+    - "acm.org"
+    - "bbc.com"
+    - "reuters.com"
+    - "apnews.com"
+
+  medium_trust_domains:
+    - "medium.com"
+    - "towardsdatascience.com"
+    - "github.com"
+    - "stackoverflow.com"
+    - "techcrunch.com"
+    - "wired.com"
+    - "theverge.com"
+    - "zdnet.com"
+    - "venturebeat.com"
+    - "analyticsvidhya.com"
+    - "kdnuggets.com"
+    - "neptune.ai"
+
+  low_trust_domains:
+    - "reddit.com"
+    - "quora.com"
+    - "yahoo.com"
+    - "answers.com"
+
+  # Boilerplate phrases — if any appear in a snippet, apply penalty
+  boilerplate_phrases:
+    - "click here"
+    - "subscribe now"
+    - "sign up"
+    - "log in to"
+    - "cookie policy"
+    - "privacy policy"
+    - "all rights reserved"
+    - "terms of service"
+    - "javascript is disabled"
+    - "enable javascript"
+    - "advertisement"
 
 # ── Cache ──────────────────────────────────────
 cache:

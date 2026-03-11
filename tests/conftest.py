@@ -14,7 +14,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # ── Prevent any real network / DB activity during tests ──────────
-# Set before importing src modules so nothing slips through.
+# Set before importing src modules so load_dotenv(override=False)
+# inside agents never clobbers these.
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-key-not-real")
 os.environ.setdefault("TAVILY_API_KEY",    "test-tavily-not-real")
 
@@ -78,14 +79,24 @@ def sample_state(sample_sources) -> dict:
         "quality_passed":  True,
         "quality_retries": 0,
         "key_claims":      [
-            {"claim": "FAISS supports billion-scale vector search", "source_idx": 1,
-             "confidence": "high", "evidence": "..."},
-            {"claim": "FAISS can run on GPUs", "source_idx": 2,
-             "confidence": "high", "evidence": "..."},
+            {
+                "claim":      "FAISS supports billion-scale vector search",
+                "source_idx": 1,
+                "confidence": "high",
+                "evidence":   "Direct quote from FB engineering blog",
+            },
+            {
+                "claim":      "FAISS can run on GPUs",
+                "source_idx": 2,
+                "confidence": "high",
+                "evidence":   "Stated in Wikipedia summary",
+            },
         ],
         "conflicts":       [],
         "synthesis":       "FAISS is a highly optimised library for dense vector similarity search.",
-        "source_ranking":  [{"source_idx": 1, "title": "FAISS", "url": "https://engineering.fb.com/..."}],
+        "source_ranking":  [
+            {"source_idx": 1, "title": "FAISS FB Blog", "url": "https://engineering.fb.com/..."},
+        ],
         "drafts":          [],
         "current_draft":   "## Executive Summary\nFAISS is a library by Meta AI...",
         "revision_count":  1,
@@ -108,7 +119,7 @@ def tmp_db_path(tmp_path) -> str:
     db_path = str(tmp_path / "test_cache.db")
     conn = sqlite3.connect(db_path)
     conn.execute("""
-        CREATE TABLE query_cache (
+        CREATE TABLE IF NOT EXISTS query_cache (
             query_hash  TEXT PRIMARY KEY,
             query       TEXT NOT NULL,
             results     TEXT NOT NULL,
@@ -118,6 +129,9 @@ def tmp_db_path(tmp_path) -> str:
             embedding   TEXT DEFAULT NULL
         )
     """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cache_created ON query_cache(created_at)"
+    )
     conn.commit()
     conn.close()
     return db_path

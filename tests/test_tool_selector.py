@@ -31,15 +31,18 @@ class TestToolSelection:
 class TestWikipediaRouting:
     """Queries that should route to Wikipedia."""
 
-    @pytest.mark.parametrize("query", [
-        "what is the attention mechanism",
-        "who invented the transformer",
-        "history of neural networks",
-        "definition of gradient descent",
-        "explain backpropagation",
-        "theory of relativity",
-        "overview of reinforcement learning",
-    ])
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "what is the attention mechanism",
+            "who invented the transformer",
+            "history of neural networks",
+            "definition of gradient descent",
+            "explain backpropagation",
+            "theory of relativity",
+            "overview of reinforcement learning",
+        ],
+    )
     def test_wikipedia_queries(self, query):
         result = select_tool(query)
         assert result["tool"] in ("wikipedia", "both"), (
@@ -51,13 +54,16 @@ class TestWikipediaRouting:
 class TestTavilyRouting:
     """Queries that should route to Tavily."""
 
-    @pytest.mark.parametrize("query", [
-        "latest AI news today",
-        "best vector databases 2024",
-        "how to install FAISS",
-        "top 5 LLM frameworks compared",
-        "current state of LLM benchmarks",
-    ])
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "latest AI news today",
+            "best vector databases 2024",
+            "how to install FAISS",
+            "top 5 LLM frameworks compared",
+            "current state of LLM benchmarks",
+        ],
+    )
     def test_tavily_queries(self, query):
         result = select_tool(query)
         assert result["tool"] in ("tavily", "both"), (
@@ -69,12 +75,15 @@ class TestTavilyRouting:
 class TestDefaultRouting:
     """Ambiguous queries with no keyword signals should default to Tavily."""
 
-    @pytest.mark.parametrize("query", [
-        "FAISS",
-        "LangGraph",
-        "multi-agent systems",
-        "embeddings",
-    ])
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "FAISS",
+            "LangGraph",
+            "multi-agent systems",
+            "embeddings",
+        ],
+    )
     def test_no_keyword_defaults_to_tavily(self, query):
         result = select_tool(query)
         assert result["tool"] == "tavily"
@@ -87,7 +96,7 @@ class TestConfidenceScaling:
     def test_more_hits_means_higher_confidence(self):
         # "what is the definition of" hits multiple wiki patterns
         high_hit = select_tool("what is the definition of reinforcement learning")
-        low_hit  = select_tool("what is FAISS")
+        low_hit = select_tool("what is FAISS")
 
         if high_hit["tool"] == "wikipedia" and low_hit["tool"] == "wikipedia":
             assert high_hit["confidence"] >= low_hit["confidence"]

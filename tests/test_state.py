@@ -34,34 +34,34 @@ class TestDefaultState:
 
     def test_lists_are_empty(self):
         s = default_state("q")
-        assert s["sources"]             == []
-        assert s["sub_topics"]          == []
-        assert s["pipeline_trace"]      == []
-        assert s["errors"]              == []
-        assert s["key_claims"]          == []
-        assert s["drafts"]              == []
+        assert s["sources"] == []
+        assert s["sub_topics"] == []
+        assert s["pipeline_trace"] == []
+        assert s["errors"] == []
+        assert s["key_claims"] == []
+        assert s["drafts"] == []
         assert s["search_queries_used"] == []
 
     def test_numeric_defaults(self):
         s = default_state("q")
-        assert s["token_count"]    == 0
-        assert s["cost_usd"]       == 0.0
-        assert s["quality_score"]  == 0.0
+        assert s["token_count"] == 0
+        assert s["cost_usd"] == 0.0
+        assert s["quality_score"] == 0.0
         assert s["revision_count"] == 0
         assert s["quality_retries"] == 0
 
     def test_bool_defaults(self):
         s = default_state("q")
-        assert s["quality_passed"]  is False
-        assert s["force_research"]  is False
+        assert s["quality_passed"] is False
+        assert s["force_research"] is False
 
     def test_string_defaults(self):
         s = default_state("q")
-        assert s["current_draft"]   == ""
-        assert s["synthesis"]       == ""
-        assert s["research_plan"]   == ""
-        assert s["final_report"]    == ""
-        assert s["current_topic"]   == ""
+        assert s["current_draft"] == ""
+        assert s["synthesis"] == ""
+        assert s["research_plan"] == ""
+        assert s["final_report"] == ""
+        assert s["current_topic"] == ""
 
     def test_review_defaults(self):
         s = default_state("q")
@@ -70,12 +70,30 @@ class TestDefaultState:
     def test_all_required_keys_present(self):
         s = default_state("q")
         required = [
-            "run_id", "query", "sub_topics", "research_plan", "current_topic",
-            "force_research", "sources", "search_queries_used", "quality_score",
-            "quality_passed", "quality_retries", "key_claims", "conflicts",
-            "synthesis", "source_ranking", "drafts", "current_draft",
-            "revision_count", "review", "final_report", "pipeline_trace",
-            "errors", "token_count", "cost_usd",
+            "run_id",
+            "query",
+            "sub_topics",
+            "research_plan",
+            "current_topic",
+            "force_research",
+            "sources",
+            "search_queries_used",
+            "quality_score",
+            "quality_passed",
+            "quality_retries",
+            "key_claims",
+            "conflicts",
+            "synthesis",
+            "source_ranking",
+            "drafts",
+            "current_draft",
+            "revision_count",
+            "review",
+            "final_report",
+            "pipeline_trace",
+            "errors",
+            "token_count",
+            "cost_usd",
         ]
         for key in required:
             assert key in s, f"Missing key: {key}"
@@ -103,7 +121,7 @@ class TestOperatorAddFields:
         assert abs(operator.add(0.001, 0.002) - 0.003) < 1e-9
 
     def test_pipeline_trace_concatenation(self):
-        t1 = [{"agent": "planner",    "duration_ms": 100}]
+        t1 = [{"agent": "planner", "duration_ms": 100}]
         t2 = [{"agent": "researcher", "duration_ms": 200}]
         merged = operator.add(t1, t2)
         assert len(merged) == 2
@@ -113,7 +131,10 @@ class TestOperatorAddFields:
     def test_errors_concatenation(self):
         e1 = ["error from researcher 1"]
         e2 = ["error from researcher 2"]
-        assert operator.add(e1, e2) == ["error from researcher 1", "error from researcher 2"]
+        assert operator.add(e1, e2) == [
+            "error from researcher 1",
+            "error from researcher 2",
+        ]
 
 
 class TestPydanticSchemas:

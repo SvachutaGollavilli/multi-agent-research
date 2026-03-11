@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 # Routing functions (read-only -- cannot write state)
 # =============================================================
 
+
 def fan_out_or_cache(state: ResearchState):
     """
     After planner: check cache first, fan out to parallel researchers on miss.
@@ -46,8 +47,8 @@ def fan_out_or_cache(state: ResearchState):
     force_research=True skips cache -- set by retry_counter after a quality
     gate failure so retries don't return the same low-quality cached results.
     """
-    query          = state.get("query", "")
-    sub_topics     = state.get("sub_topics") or [query]
+    query = state.get("query", "")
+    sub_topics = state.get("sub_topics") or [query]
     force_research = state.get("force_research", False)
 
     if not force_research:
@@ -64,22 +65,23 @@ def fan_out_or_cache(state: ResearchState):
         f"fanning out to {len(sub_topics)} parallel researchers"
     )
     return [
-        Send("researcher", {**state, "current_topic": topic})
-        for topic in sub_topics
+        Send("researcher", {**state, "current_topic": topic}) for topic in sub_topics
     ]
 
 
 def _should_retry_research(state: ResearchState) -> str:
-    passed          = state.get("quality_passed", False)
+    passed = state.get("quality_passed", False)
     quality_retries = state.get("quality_retries", 0)
-    score           = state.get("quality_score", 0.0)
+    score = state.get("quality_score", 0.0)
 
-    cfg                 = get_pipeline_config()
+    cfg = get_pipeline_config()
     max_quality_retries = int(cfg.get("max_quality_retries", 1))
-    threshold           = float(cfg.get("quality_threshold", 0.4))
+    threshold = float(cfg.get("quality_threshold", 0.4))
 
     if passed:
-        logger.info(f"[graph] quality PASS (score={score:.3f} >= {threshold}) -> analyst")
+        logger.info(
+            f"[graph] quality PASS (score={score:.3f} >= {threshold}) -> analyst"
+        )
         return "analyst"
 
     if quality_retries < max_quality_retries:
@@ -97,14 +99,14 @@ def _should_retry_research(state: ResearchState) -> str:
 
 
 def _should_revise(state: ResearchState) -> str:
-    review         = state.get("review", {})
-    score          = review.get("score", 0)
-    passed         = review.get("passed", False)
+    review = state.get("review", {})
+    score = review.get("score", 0)
+    passed = review.get("passed", False)
     revision_count = state.get("revision_count", 0)
 
-    cfg           = get_pipeline_config()
+    cfg = get_pipeline_config()
     max_revisions = int(cfg.get("max_revisions", 2))
-    pass_score    = int(cfg.get("review_pass_score", 7))
+    pass_score = int(cfg.get("review_pass_score", 7))
 
     if passed or score >= pass_score:
         logger.info(f"[graph] reviewer PASS (score={score}/{pass_score}) -> END")
@@ -128,25 +130,28 @@ def _should_revise(state: ResearchState) -> str:
 # Utility nodes
 # =============================================================
 
+
 def cache_loader_node(state: ResearchState) -> dict:
     """Write cached sources into state. Needed because routing fns are read-only."""
     query = state.get("query", "")
-    t0    = time.time()
+    t0 = time.time()
 
-    cached     = cache_fetch(query)
-    sources    = cached or []
+    cached = cache_fetch(query)
+    sources = cached or []
     elapsed_ms = int((time.time() - t0) * 1000)
     logger.info(f"[cache_loader] {len(sources)} cached sources | {elapsed_ms}ms")
 
     return {
-        "sources":             sources,
+        "sources": sources,
         "search_queries_used": [query],
-        "pipeline_trace": [{
-            "agent":       "cache_loader",
-            "duration_ms": elapsed_ms,
-            "tokens":      0,
-            "summary":     f"Cache HIT: {len(sources)} sources for '{query[:40]}'",
-        }],
+        "pipeline_trace": [
+            {
+                "agent": "cache_loader",
+                "duration_ms": elapsed_ms,
+                "tokens": 0,
+                "summary": f"Cache HIT: {len(sources)} sources for '{query[:40]}'",
+            }
+        ],
     }
 
 
@@ -159,11 +164,11 @@ def merge_research_node(state: ResearchState) -> dict:
     2. Cache write on a BACKGROUND DAEMON THREAD -- pipeline never waits
        for the ~40ms embed + write.
     """
-    query   = state.get("query", "")
+    query = state.get("query", "")
     sources = state.get("sources", [])
-    t0      = time.time()
+    t0 = time.time()
 
-    seen:   set        = set()
+    seen: set = set()
     unique: list[dict] = []
     for s in sources:
         url = s.get("url", "")
@@ -193,15 +198,17 @@ def merge_research_node(state: ResearchState) -> dict:
 
     return {
         "sources": unique,
-        "pipeline_trace": [{
-            "agent":       "merge_research",
-            "duration_ms": elapsed_ms,
-            "tokens":      0,
-            "summary":     (
-                f"Merged to {len(unique)} unique sources "
-                f"(removed {duplicates} dupes)"
-            ),
-        }],
+        "pipeline_trace": [
+            {
+                "agent": "merge_research",
+                "duration_ms": elapsed_ms,
+                "tokens": 0,
+                "summary": (
+                    f"Merged to {len(unique)} unique sources "
+                    f"(removed {duplicates} dupes)"
+                ),
+            }
+        ],
     }
 
 
@@ -214,8 +221,8 @@ def retry_counter_node(state: ResearchState) -> dict:
     )
     return {
         "quality_retries": retries,
-        "force_research":  True,
-        "sources":         [],
+        "force_research": True,
+        "sources": [],
     }
 
 
@@ -223,19 +230,20 @@ def retry_counter_node(state: ResearchState) -> dict:
 # Graph assembly
 # =============================================================
 
+
 def build_graph():
     graph = StateGraph(ResearchState)
 
-    graph.add_node("planner",        planner_agent)
-    graph.add_node("cache_loader",   cache_loader_node)
-    graph.add_node("researcher",     researcher_agent)
+    graph.add_node("planner", planner_agent)
+    graph.add_node("cache_loader", cache_loader_node)
+    graph.add_node("researcher", researcher_agent)
     graph.add_node("merge_research", merge_research_node)
-    graph.add_node("quality_gate",   quality_gate_agent)
-    graph.add_node("retry_counter",  retry_counter_node)
-    graph.add_node("analyst",        analyst_agent)
-    graph.add_node("synthesizer",    synthesizer_agent)
-    graph.add_node("writer",         writer_agent)
-    graph.add_node("reviewer",       reviewer_agent)
+    graph.add_node("quality_gate", quality_gate_agent)
+    graph.add_node("retry_counter", retry_counter_node)
+    graph.add_node("analyst", analyst_agent)
+    graph.add_node("synthesizer", synthesizer_agent)
+    graph.add_node("writer", writer_agent)
+    graph.add_node("reviewer", reviewer_agent)
 
     graph.set_entry_point("planner")
 
@@ -245,8 +253,8 @@ def build_graph():
         {"cache_loader": "cache_loader", "researcher": "researcher"},
     )
 
-    graph.add_edge("cache_loader",   "quality_gate")
-    graph.add_edge("researcher",     "merge_research")
+    graph.add_edge("cache_loader", "quality_gate")
+    graph.add_edge("researcher", "merge_research")
     graph.add_edge("merge_research", "quality_gate")
 
     graph.add_conditional_edges(
@@ -261,9 +269,9 @@ def build_graph():
         {"cache_loader": "cache_loader", "researcher": "researcher"},
     )
 
-    graph.add_edge("analyst",     "synthesizer")
+    graph.add_edge("analyst", "synthesizer")
     graph.add_edge("synthesizer", "writer")
-    graph.add_edge("writer",      "reviewer")
+    graph.add_edge("writer", "reviewer")
 
     graph.add_conditional_edges(
         "reviewer",
@@ -278,15 +286,16 @@ def build_graph():
 # Sync pipeline runner (CLI, eval)
 # =============================================================
 
+
 def run_pipeline(query: str) -> dict:
     start_logger()
     run_id = start_run(query)
-    acc    = RunCostAccumulator(run_id=run_id)
+    acc = RunCostAccumulator(run_id=run_id)
 
     try:
         pipeline = build_graph()
-        initial  = default_state(query=query, run_id=run_id)
-        result   = pipeline.invoke(initial)
+        initial = default_state(query=query, run_id=run_id)
+        result = pipeline.invoke(initial)
 
         end_run(
             run_id=run_id,
@@ -300,10 +309,10 @@ def run_pipeline(query: str) -> dict:
         report_path = write_report(result, run_id=run_id)
         logger.info(f"Report saved -> {report_path}")
 
-        review          = result.get("review", {})
-        revision_count  = result.get("revision_count", 0)
+        review = result.get("review", {})
+        revision_count = result.get("revision_count", 0)
         quality_retries = result.get("quality_retries", 0)
-        trace           = result.get("pipeline_trace", [])
+        trace = result.get("pipeline_trace", [])
 
         logger.info("-" * 60)
         logger.info(f"Pipeline summary | run: {run_id[:8]}...")
@@ -324,7 +333,7 @@ def run_pipeline(query: str) -> dict:
         logger.info("-" * 60)
         for step in trace:
             logger.info(
-                f"  {step.get('agent','?'):14s} | "
+                f"  {step.get('agent', '?'):14s} | "
                 f"{step.get('duration_ms', 0):5d}ms | "
                 f"tokens: {step.get('tokens', 0):5d} | "
                 f"{step.get('summary', '')}"
@@ -343,6 +352,7 @@ def run_pipeline(query: str) -> dict:
 # Async pipeline runner (Streamlit UI, arun_pipeline)
 # =============================================================
 
+
 async def arun_pipeline(query: str) -> dict:
     """
     Async version of run_pipeline() -- uses LangGraph's ainvoke() so
@@ -354,12 +364,12 @@ async def arun_pipeline(query: str) -> dict:
     """
     start_logger()
     run_id = start_run(query)
-    acc    = RunCostAccumulator(run_id=run_id)
+    acc = RunCostAccumulator(run_id=run_id)
 
     try:
         pipeline = build_graph()
-        initial  = default_state(query=query, run_id=run_id)
-        result   = await pipeline.ainvoke(initial)
+        initial = default_state(query=query, run_id=run_id)
+        result = await pipeline.ainvoke(initial)
 
         end_run(
             run_id=run_id,
@@ -398,23 +408,21 @@ def stream_pipeline_async(query: str) -> Iterator[tuple[str, dict, dict]]:
     """
     start_logger()
     run_id = start_run(query)
-    acc    = RunCostAccumulator(run_id=run_id)
+    acc = RunCostAccumulator(run_id=run_id)
 
     # Queue bridges the async background thread -> sync Streamlit thread
     # Sentinel: None = stream finished, Exception instance = error
     event_queue: queue.Queue = queue.Queue()
 
     # Accumulated state -- built up as nodes complete
-    initial     = default_state(query=query, run_id=run_id)
+    initial = default_state(query=query, run_id=run_id)
     accumulated = dict(initial)
 
     async def _astream():
         """Run in the background thread's own event loop."""
         try:
             pipeline = build_graph()
-            async for event in pipeline.astream(
-                initial, stream_mode="updates"
-            ):
+            async for event in pipeline.astream(initial, stream_mode="updates"):
                 event_queue.put(("event", event))
         except Exception as e:
             event_queue.put(("error", e))
@@ -444,8 +452,12 @@ def stream_pipeline_async(query: str) -> Iterator[tuple[str, dict, dict]]:
                 for node_name, update in data.items():
                     # Merge update into accumulated state
                     for k, v in update.items():
-                        if k in ("sources", "pipeline_trace", "errors",
-                                 "search_queries_used"):
+                        if k in (
+                            "sources",
+                            "pipeline_trace",
+                            "errors",
+                            "search_queries_used",
+                        ):
                             existing = accumulated.get(k, [])
                             accumulated[k] = existing + (
                                 v if isinstance(v, list) else []

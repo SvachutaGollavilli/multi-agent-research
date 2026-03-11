@@ -53,13 +53,13 @@ def _add_metadata_table(doc: Document, result: dict, run_id: str) -> None:
     table.style = "Table Grid"
 
     meta_items = [
-        ("Run ID",           run_id[:8] + "..." if run_id else "—"),
-        ("Query",            result.get("query", "")),
-        ("Sources found",    str(len(result.get("sources", [])))),
+        ("Run ID", run_id[:8] + "..." if run_id else "—"),
+        ("Query", result.get("query", "")),
+        ("Sources found", str(len(result.get("sources", [])))),
         ("Claims extracted", str(len(result.get("key_claims", [])))),
-        ("Total tokens",     str(result.get("token_count", 0))),
-        ("Total cost",       f"${result.get('cost_usd', 0.0):.6f}"),
-        ("Generated",        datetime.now().strftime("%Y-%m-%d %H:%M")),
+        ("Total tokens", str(result.get("token_count", 0))),
+        ("Total cost", f"${result.get('cost_usd', 0.0):.6f}"),
+        ("Generated", datetime.now().strftime("%Y-%m-%d %H:%M")),
     ]
 
     for label, value in meta_items:
@@ -173,9 +173,9 @@ def write_report(result: dict, run_id: str = "") -> str:
     Returns:
         Absolute path to the saved .docx file
     """
-    query       = result.get("query", "unknown_query")
-    report_md   = result.get("current_draft") or result.get("final_report", "")
-    base_name   = _safe_filename(query)
+    query = result.get("query", "unknown_query")
+    report_md = result.get("current_draft") or result.get("final_report", "")
+    base_name = _safe_filename(query)
     output_path = _unique_path(base_name)
 
     doc = Document()

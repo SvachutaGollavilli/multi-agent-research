@@ -1,37 +1,29 @@
-# ruff.toml — linter + formatter config for multi-agent-research
-
-# Target Python 3.11+
+# ruff.toml
 target-version = "py311"
-
-# Files to check
 include = ["src/**/*.py", "tests/**/*.py", "app.py", "main.py"]
 
 [lint]
-# Rule sets to enable:
-#   E/W  — pycodestyle errors and warnings
-#   F    — pyflakes (undefined names, unused imports)
-#   I    — isort (import ordering)
-#   UP   — pyupgrade (modernise syntax)
-#   B    — flake8-bugbear (common bugs and design issues)
-#   SIM  — flake8-simplify
 select = ["E", "W", "F", "I", "UP", "B", "SIM"]
 
-# Ignored rules:
-#   E501  — line too long (formatter handles this)
-#   B008  — do not perform function calls in default args (used in FastAPI/LangGraph patterns)
-#   SIM108 — ternary operators (readability preference)
-#   UP007 — use X | Y for union types (keep Optional for 3.10 compat)
-ignore = ["E501", "B008", "SIM108", "UP007"]
+ignore = [
+    "E501",   # line too long — formatter handles this
+    "E402",   # module-level import not at top — intentional in app.py (_inject_secrets must run first)
+    "B008",   # function call in default arg — used in LangGraph patterns
+    "SIM108", # ternary — readability preference
+    "UP007",  # X | Y unions — keep Optional for 3.10 compat
+    "UP045",  # Optional[X] -> X | None — same reason as UP007
+    "B905",   # zip() strict= — verbose, not needed here
+    "SIM117", # nested with — sometimes clearer than combined
+]
 
-# Allow these in tests only
 [lint.per-file-ignores]
 "tests/*" = [
-    "S101",   # assert statements are fine in tests
-    "F841",   # local variable assigned but never used (common in test fixtures)
+    "S101",  # assert is fine in tests
+    "F841",  # unused local vars in fixtures
+    "B017",  # pytest.raises(Exception) — acceptable in broad smoke tests
 ]
 
 [format]
-# Double quotes everywhere (matches existing codebase)
 quote-style = "double"
 indent-style = "space"
 line-ending = "auto"

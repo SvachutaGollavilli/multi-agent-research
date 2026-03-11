@@ -7,10 +7,9 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-
 
 # -----------------------------------------------------------------
 # Helpers
@@ -125,8 +124,11 @@ class TestCacheStore:
         assert result[0]["title"] == "Stored"
 
     def test_store_deduplicates_by_url(self, patched_cache, tmp_db_path):
+        import hashlib
+        import json
+        import sqlite3
+
         from src.cache.research_cache import store
-        import sqlite3, json, hashlib
         data = [
             {"title": "A", "url": "https://dupe.com", "content": "x"},
             {"title": "B", "url": "https://dupe.com", "content": "y"},  # duplicate URL
@@ -134,7 +136,7 @@ class TestCacheStore:
         ]
         store("dedup test query", data, "tavily")
 
-        key = hashlib.sha256("dedup test query".encode()).hexdigest()
+        key = hashlib.sha256(b"dedup test query").hexdigest()
         with sqlite3.connect(tmp_db_path) as conn:
             row = conn.execute(
                 "SELECT results FROM query_cache WHERE query_hash=?", (key,)

@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-from src.config import get_budget_config, get_rate_limit_rpm
+from src.config import get_rate_limit_rpm
 from src.observability.cost import RunCostAccumulator, check_budget
 
 logger = logging.getLogger(__name__)

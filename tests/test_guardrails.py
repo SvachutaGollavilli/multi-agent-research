@@ -6,9 +6,6 @@
 
 from __future__ import annotations
 
-import time
-from unittest.mock import MagicMock, patch
-
 import pytest
 
 from src.guardrails import (
@@ -20,7 +17,6 @@ from src.guardrails import (
     detect_pii,
     scrub_pii,
 )
-
 
 # =============================================================
 # Layer 1 — Prompt Injection Detection

@@ -1,6 +1,7 @@
 # src/tools/wikipedia.py
 
 import logging
+
 import wikipedia
 
 logger = logging.getLogger(__name__)

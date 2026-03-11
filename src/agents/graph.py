@@ -7,23 +7,24 @@ import logging
 import queue
 import threading
 import time
-from typing import AsyncIterator, Iterator
+from collections.abc import Iterator
 
 from dotenv import load_dotenv
 from langgraph.graph import END, StateGraph
 from langgraph.types import Send
 
-from src.agents.analyst      import analyst_agent
-from src.agents.planner      import planner_agent
+from src.agents.analyst import analyst_agent
+from src.agents.planner import planner_agent
 from src.agents.quality_gate import quality_gate_agent
-from src.agents.researcher   import researcher_agent
-from src.agents.reviewer     import reviewer_agent
-from src.agents.synthesizer  import synthesizer_agent
-from src.agents.writer       import writer_agent
-from src.cache.research_cache import fetch as cache_fetch, store as cache_store
-from src.config              import get_pipeline_config
-from src.models.state        import ResearchState, default_state
-from src.observability.cost  import RunCostAccumulator
+from src.agents.researcher import researcher_agent
+from src.agents.reviewer import reviewer_agent
+from src.agents.synthesizer import synthesizer_agent
+from src.agents.writer import writer_agent
+from src.cache.research_cache import fetch as cache_fetch
+from src.cache.research_cache import store as cache_store
+from src.config import get_pipeline_config
+from src.models.state import ResearchState, default_state
+from src.observability.cost import RunCostAccumulator
 from src.observability.logger import end_run, start_logger, start_run
 from src.output.report_writer import write_report
 
@@ -474,7 +475,6 @@ def stream_pipeline_async(query: str) -> Iterator[tuple[str, dict, dict]]:
 
 
 if __name__ == "__main__":
-    import uuid
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",

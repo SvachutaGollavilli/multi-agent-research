@@ -1,6 +1,7 @@
-from tavily import TavilyClient
-from dotenv import load_dotenv
 import os
+
+from dotenv import load_dotenv
+from tavily import TavilyClient
 
 load_dotenv()
 
@@ -13,7 +14,7 @@ def search_web(query:str, max_results: int = 5) -> list[dict]:
         max_results: How many results to return (default 5), can cap it to a max of 10
 
     Returns:
-        List of dicts with 'title', 'url', 'content' keys 
+        List of dicts with 'title', 'url', 'content' keys
     """
 
     client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))

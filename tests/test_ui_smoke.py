@@ -9,9 +9,7 @@
 from __future__ import annotations
 
 import os
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 # Ensure fake keys are present before any src import
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-key-not-real")
@@ -58,7 +56,11 @@ class TestAgentImports:
 
     def test_graph_imports(self):
         with patch("langchain_anthropic.ChatAnthropic"):
-            from src.agents.graph import build_graph, run_pipeline, stream_pipeline_async
+            from src.agents.graph import (
+                build_graph,
+                run_pipeline,
+                stream_pipeline_async,
+            )
         assert callable(build_graph)
         assert callable(run_pipeline)
         assert callable(stream_pipeline_async)
@@ -118,13 +120,8 @@ class TestCacheImports:
 class TestConfigImports:
     def test_config_module_imports(self):
         from src.config import (
-            get_budget_config,
-            get_cache_config,
-            get_max_tokens,
             get_model,
             get_pipeline_config,
-            get_quality_gate_config,
-            get_search_config,
             load_config,
         )
         assert callable(load_config)
@@ -178,13 +175,9 @@ class TestConfigImports:
 class TestGuardrailImports:
     def test_guardrails_module_imports(self):
         from src.guardrails import (
-            GuardrailResult,
-            RateLimiter,
             check_input,
             check_output,
             detect_injection,
-            detect_pii,
-            rate_limiter,
             scrub_pii,
         )
         assert callable(detect_injection)
@@ -193,7 +186,7 @@ class TestGuardrailImports:
         assert callable(check_output)
 
     def test_global_rate_limiter_is_instance(self):
-        from src.guardrails import rate_limiter, RateLimiter
+        from src.guardrails import RateLimiter, rate_limiter
         assert isinstance(rate_limiter, RateLimiter)
 
     def test_guardrail_result_is_dataclass(self):
@@ -210,9 +203,6 @@ class TestGuardrailImports:
 class TestObservabilityImports:
     def test_cost_module_imports(self):
         from src.observability.cost import (
-            CostRecord,
-            RunCostAccumulator,
-            TokenUsage,
             calculate_cost,
             check_budget,
             extract_token_usage,
@@ -226,10 +216,7 @@ class TestObservabilityImports:
             end_run,
             log_agent_end,
             log_agent_start,
-            log_cost,
-            start_logger,
             start_run,
-            stop_logger,
         )
         assert callable(start_run)
         assert callable(end_run)
@@ -237,7 +224,7 @@ class TestObservabilityImports:
         assert callable(log_agent_end)
 
     def test_db_module_imports(self):
-        from src.observability.db import execute, fetchall, fetchone, get_db_stats
+        from src.observability.db import get_db_stats
         assert callable(get_db_stats)
 
     def test_db_stats_returns_dict(self):
@@ -279,7 +266,9 @@ class TestEvaluationImports:
             )
 
     def test_questions_yaml_loads(self):
-        import yaml, os
+        import os
+
+        import yaml
         questions_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             "evaluation", "questions.yaml"
@@ -303,11 +292,6 @@ class TestEvaluationImports:
 class TestStateModuleImports:
     def test_state_module_imports(self):
         from src.models.state import (
-            AnalystOutput,
-            ClaimOutput,
-            PlannerOutput,
-            ResearchState,
-            ReviewOutput,
             default_state,
         )
         assert callable(default_state)

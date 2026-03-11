@@ -6,10 +6,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from src.models.state import default_state
-
 
 # -----------------------------------------------------------------
 # Graph compilation
@@ -48,8 +45,9 @@ class TestFanOutOrCache:
         return s
 
     def test_cache_miss_returns_send_list(self):
-        from src.agents.graph import fan_out_or_cache
         from langgraph.types import Send
+
+        from src.agents.graph import fan_out_or_cache
         with patch("src.agents.graph.cache_fetch", return_value=None):
             result = fan_out_or_cache(self._state())
         assert isinstance(result, list)
@@ -64,8 +62,9 @@ class TestFanOutOrCache:
         assert result == "cache_loader"
 
     def test_force_research_bypasses_cache(self):
-        from src.agents.graph import fan_out_or_cache
         from langgraph.types import Send
+
+        from src.agents.graph import fan_out_or_cache
         fake_sources = [{"url": "https://a.com", "title": "a", "content": "c"}]
         with patch("src.agents.graph.cache_fetch", return_value=fake_sources):
             # Even with a cache hit, force_research=True must bypass it
@@ -81,8 +80,8 @@ class TestFanOutOrCache:
         assert topics == ["FAISS algorithm", "FAISS GPU", "FAISS index types"]
 
     def test_falls_back_to_query_when_no_sub_topics(self):
+
         from src.agents.graph import fan_out_or_cache
-        from langgraph.types import Send
         state = default_state("What is FAISS?")
         state["sub_topics"] = []  # no sub-topics
         with patch("src.agents.graph.cache_fetch", return_value=None):

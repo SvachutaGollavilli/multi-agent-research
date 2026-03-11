@@ -30,7 +30,7 @@ def load_config(path: Optional[str] = None) -> dict:
         return _config
     config_path = path or _CONFIG_PATH
     try:
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             _config = yaml.safe_load(f) or {}
         logger.info(f"Config loaded from {config_path}")
     except FileNotFoundError:

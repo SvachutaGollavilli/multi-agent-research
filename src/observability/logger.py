@@ -363,7 +363,7 @@ def _hash_state(state: Any) -> str:
 # ═══════════════════════════════════════════════
 
 if __name__ == "__main__":
-    from src.observability.cost import calculate_cost, RunCostAccumulator
+    from src.observability.cost import RunCostAccumulator, calculate_cost
 
     logging.basicConfig(
         level=logging.DEBUG,

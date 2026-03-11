@@ -98,6 +98,6 @@ def planner_agent(state: ResearchState) -> dict:
             "pipeline_trace": [{
                 "agent":   "planner",
                 "duration_ms": int((time.time() - t0) * 1000),
-                "summary": f"Error — fallback to direct query",
+                "summary": "Error — fallback to direct query",
             }],
         }

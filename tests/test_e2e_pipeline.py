@@ -8,13 +8,9 @@
 
 from __future__ import annotations
 
-import json
-from unittest.mock import AsyncMock, MagicMock, patch, call
-
-import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.models.state import default_state
-
 
 # =============================================================
 # Shared mock helpers
@@ -76,7 +72,12 @@ class TestFullPipelineMocked:
     """
 
     def _run_pipeline(self, query: str = "What is FAISS?"):
-        from src.models.state import PlannerOutput, AnalystOutput, ClaimOutput, ReviewOutput
+        from src.models.state import (
+            AnalystOutput,
+            ClaimOutput,
+            PlannerOutput,
+            ReviewOutput,
+        )
 
         planner_obj = PlannerOutput(
             sub_topics=["FAISS algorithm overview", "FAISS index types"],
@@ -245,8 +246,9 @@ class TestQualityGateRetryFlow:
         assert result["sources"] == []
 
     def test_force_research_bypasses_cache(self):
-        from src.agents.graph import fan_out_or_cache
         from langgraph.types import Send
+
+        from src.agents.graph import fan_out_or_cache
 
         # Even with a warm cache, force_research=True must fan out
         fake_cached = [{"url": "https://a.com", "title": "a", "content": "c"}]
@@ -344,8 +346,9 @@ class TestReviewerRefinementLoop:
 
 class TestParallelFanOut:
     def test_fan_out_creates_one_send_per_subtopic(self):
-        from src.agents.graph import fan_out_or_cache
         from langgraph.types import Send
+
+        from src.agents.graph import fan_out_or_cache
 
         state = default_state("q")
         state["sub_topics"] = ["topic A", "topic B", "topic C"]
@@ -412,8 +415,8 @@ class TestParallelFanOut:
         assert result == "cache_loader"
 
     def test_single_subtopic_creates_one_send(self):
+
         from src.agents.graph import fan_out_or_cache
-        from langgraph.types import Send
 
         state = default_state("q")
         state["sub_topics"] = ["single topic"]
@@ -458,7 +461,7 @@ class TestBudgetEnforcement:
         assert status == "ok"
 
     def test_check_budget_exceeded_over_hard_limit(self):
-        from src.observability.cost import RunCostAccumulator, check_budget, HARD_LIMIT
+        from src.observability.cost import HARD_LIMIT, RunCostAccumulator, check_budget
         acc            = RunCostAccumulator(run_id="test")
         acc.total_cost = HARD_LIMIT + 0.01  # over the hard limit
         ok, status     = check_budget(acc, "writer")

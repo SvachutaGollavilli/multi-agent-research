@@ -14,7 +14,6 @@ from src.agents.quality_gate import (
 )
 from src.models.state import default_state
 
-
 # -----------------------------------------------------------------
 # _extract_domain
 # -----------------------------------------------------------------

@@ -29,10 +29,10 @@ from dotenv import load_dotenv
 from src.config import get_search_config
 from src.models.state import ResearchState
 from src.observability.logger import log_agent_end, log_agent_start
-from src.tools.tool_selector import select_tool
 
 # Async search -- Tavily via aiohttp, Wikipedia via asyncio.to_thread
 from src.tools.async_search import async_search_all
+from src.tools.tool_selector import select_tool
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -140,10 +140,8 @@ def _run_async(coro) -> any:
     without requiring the whole graph to be async.
     """
     try:
-        loop = asyncio.get_running_loop()
-        # We ARE inside an async context -- submit as a concurrent task
-        # and wait using run_until_complete on a new thread-local loop.
-        # Simplest safe approach: run in a thread with its own event loop.
+        asyncio.get_running_loop()
+        # We ARE inside an async context -- run in a thread with its own event loop.
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(asyncio.run, coro)

@@ -44,7 +44,7 @@ _FALLBACK_PRICING: dict[str, float] = {"input": 0.003, "output": 0.015}
 # ── Budget limits (USD) ────────────────────────
 def _get_limits() -> tuple[float, float]:
     """Read budget limits from config at runtime (not import time)."""
-    from src.config import get_budget_config   # local import avoids circular dep
+    from src.config import get_budget_config  # local import avoids circular dep
     budget = get_budget_config()
     return float(budget["soft_limit"]), float(budget["hard_limit"])
 

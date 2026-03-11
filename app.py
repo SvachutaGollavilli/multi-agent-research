@@ -23,9 +23,8 @@ def _inject_secrets() -> None:
 
 _inject_secrets()
 
-from src.agents.graph         import stream_pipeline_async
+from src.agents.graph import stream_pipeline_async
 from src.output.report_writer import write_report
-
 
 # ── Page config ──────────────────────────────────────────────────
 st.set_page_config(
@@ -231,12 +230,12 @@ def _sb_slot():
     return st.session_state._sb
 
 
-def _row(l, v):
-    return f"<div class='sb-r'><span class='l'>{l}</span><span class='v'>{v}</span></div>"
+def _row(label, val):
+    return f"<div class='sb-r'><span class='l'>{label}</span><span class='v'>{val}</span></div>"
 
 
 def render_sidebar():
-    sid  = st.session_state.sid
+    session_id = st.session_state.sid
     n    = st.session_state.total_runs
     cost = st.session_state.total_cost
     toks = st.session_state.total_tokens
@@ -248,7 +247,7 @@ def render_sidebar():
         <div class="sb-title">🔬 Research Assistant</div>
         <div class="sb-sub">Async multi-agent AI pipeline</div>
         <div class="sb-badge">LangGraph · Claude Haiku · 10-node</div><br>
-        <div class="sb-sid">Session <b>#{sid}</b></div>
+        <div class="sb-sid">Session <b>#{session_id}</b></div>
     </div>
     """
 
@@ -414,7 +413,7 @@ def main():
         run_error: str | None = None
 
         try:
-            for node_name, update, accumulated in stream_pipeline_async(query):
+            for node_name, _update, accumulated in stream_pipeline_async(query):
                 final_state = accumulated
 
                 if current_node and current_node not in ("retry_counter", "fan_out_or_cache"):
@@ -486,7 +485,7 @@ def main():
             score  = (final_state.get("review") or {}).get("score")
 
             st.markdown(
-                f"<div class='result-bar'>"
+                "<div class='result-bar'>"
                 + _mcard(srcs,                             "Sources")
                 + _mcard(claims,                           "Claims")
                 + _mcard(f"{duration:.0f}s",               "Run time")

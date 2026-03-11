@@ -37,8 +37,9 @@ _TAVILY_URL = "https://api.tavily.com/search"
 # Async Tavily search (aiohttp)
 # -----------------------------------------------------------------
 
+
 async def async_search_web(
-    query:       str,
+    query: str,
     max_results: int | None = None,
 ) -> list[dict]:
     """
@@ -56,6 +57,7 @@ async def async_search_web(
             "falling back to sync Tavily. Run: uv add aiohttp"
         )
         from src.tools.search import search_web
+
         return await asyncio.to_thread(search_web, query, max_results or 5)
 
     api_key = os.getenv("TAVILY_API_KEY", "")
@@ -63,14 +65,14 @@ async def async_search_web(
         logger.error("[async_search] TAVILY_API_KEY not set")
         return []
 
-    cfg         = get_search_config()
-    n_results   = max_results or cfg.get("max_results", 5)
-    depth       = cfg.get("search_depth", "basic")
+    cfg = get_search_config()
+    n_results = max_results or cfg.get("max_results", 5)
+    depth = cfg.get("search_depth", "basic")
 
     payload = {
-        "api_key":      api_key,
-        "query":        query,
-        "max_results":  n_results,
+        "api_key": api_key,
+        "query": query,
+        "max_results": n_results,
         "search_depth": depth,
     }
 
@@ -83,13 +85,17 @@ async def async_search_web(
 
         results = []
         for r in data.get("results", []):
-            results.append({
-                "title":   r.get("title", ""),
-                "url":     r.get("url", ""),
-                "content": r.get("content", ""),
-            })
+            results.append(
+                {
+                    "title": r.get("title", ""),
+                    "url": r.get("url", ""),
+                    "content": r.get("content", ""),
+                }
+            )
 
-        logger.debug(f"[async_search] tavily: {len(results)} results for '{query[:50]}'")
+        logger.debug(
+            f"[async_search] tavily: {len(results)} results for '{query[:50]}'"
+        )
         return results
 
     except Exception as e:
@@ -101,8 +107,9 @@ async def async_search_web(
 # Async Wikipedia search (asyncio.to_thread)
 # -----------------------------------------------------------------
 
+
 async def async_search_wikipedia(
-    query:       str,
+    query: str,
     max_results: int | None = None,
 ) -> list[dict]:
     """
@@ -113,11 +120,14 @@ async def async_search_wikipedia(
     default ThreadPoolExecutor and awaits the result.
     """
     from src.tools.wikipedia import search_wikipedia
-    cfg    = get_search_config()
+
+    cfg = get_search_config()
     n_wiki = max_results or cfg.get("max_wiki_results", 3)
     try:
         results = await asyncio.to_thread(search_wikipedia, query, n_wiki)
-        logger.debug(f"[async_search] wikipedia: {len(results)} results for '{query[:50]}'")
+        logger.debug(
+            f"[async_search] wikipedia: {len(results)} results for '{query[:50]}'"
+        )
         return results
     except Exception as e:
         logger.warning(f"[async_search] wikipedia error for '{query[:40]}': {e}")
@@ -128,11 +138,12 @@ async def async_search_wikipedia(
 # Convenience: gather both sources concurrently
 # -----------------------------------------------------------------
 
+
 async def async_search_all(
-    query:       str,
-    tool:        str = "both",
+    query: str,
+    tool: str = "both",
     max_results: int | None = None,
-    max_wiki:    int | None = None,
+    max_wiki: int | None = None,
 ) -> list[dict]:
     """
     Run Tavily and/or Wikipedia concurrently and return merged, deduped results.
@@ -166,7 +177,7 @@ async def async_search_all(
             combined.extend(result)
 
     # URL dedup
-    seen:   set        = set()
+    seen: set = set()
     unique: list[dict] = []
     for r in combined:
         url = r.get("url", "")

@@ -27,21 +27,25 @@ def search_wikipedia(query: str, max_results: int = 3) -> list[dict]:
         for title in titles[:max_results]:
             try:
                 page = wikipedia.page(title, auto_suggest=False)
-                results.append({
-                    "title":   page.title,
-                    "url":     page.url,
-                    # First 1000 chars is enough context for the analyst
-                    "content": page.summary[:1000],
-                })
+                results.append(
+                    {
+                        "title": page.title,
+                        "url": page.url,
+                        # First 1000 chars is enough context for the analyst
+                        "content": page.summary[:1000],
+                    }
+                )
             except wikipedia.DisambiguationError as e:
                 # e.options gives alternative titles — try the first one
                 try:
                     page = wikipedia.page(e.options[0], auto_suggest=False)
-                    results.append({
-                        "title":   page.title,
-                        "url":     page.url,
-                        "content": page.summary[:1000],
-                    })
+                    results.append(
+                        {
+                            "title": page.title,
+                            "url": page.url,
+                            "content": page.summary[:1000],
+                        }
+                    )
                 except Exception:
                     logger.debug(f"[wikipedia] skipping ambiguous title: {title}")
             except wikipedia.PageError:
@@ -58,6 +62,7 @@ def search_wikipedia(query: str, max_results: int = 3) -> list[dict]:
 
 if __name__ == "__main__":
     import logging
+
     logging.basicConfig(level=logging.DEBUG)
     results = search_wikipedia(input("Wikipedia query: "), max_results=3)
     for r in results:

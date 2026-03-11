@@ -6,9 +6,7 @@ __pycache__/
 .DS_Store
 artifacts/results/
 data/
-.python-version
 .env
-.env.example
 results/
 evaluation/results/
 .streamlit/secrets.toml

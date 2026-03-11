@@ -3,7 +3,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-orchestration-green.svg)](https://langchain-ai.github.io/langgraph/)
 [![Claude](https://img.shields.io/badge/Claude-Haiku-orange.svg)](https://www.anthropic.com/)
-[![Tests](https://github.com/krishnagollavilli/multi-agent-research/actions/workflows/test.yml/badge.svg)](https://github.com/krishnagollavilli/multi-agent-research/actions/workflows/test.yml)
+[![CI](https://github.com/krishnagollavilli/multi-agent-research/actions/workflows/ci.yml/badge.svg)](https://github.com/krishnagollavilli/multi-agent-research/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > 7-agent orchestrated research pipeline (10 graph nodes) with two-level semantic cache, async streaming, intra-node concurrent search, full observability, per-agent cost tracking, and `.docx` report generation.

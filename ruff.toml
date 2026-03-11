@@ -1,0 +1,37 @@
+# ruff.toml — linter + formatter config for multi-agent-research
+
+# Target Python 3.11+
+target-version = "py311"
+
+# Files to check
+include = ["src/**/*.py", "tests/**/*.py", "app.py", "main.py"]
+
+[lint]
+# Rule sets to enable:
+#   E/W  — pycodestyle errors and warnings
+#   F    — pyflakes (undefined names, unused imports)
+#   I    — isort (import ordering)
+#   UP   — pyupgrade (modernise syntax)
+#   B    — flake8-bugbear (common bugs and design issues)
+#   SIM  — flake8-simplify
+select = ["E", "W", "F", "I", "UP", "B", "SIM"]
+
+# Ignored rules:
+#   E501  — line too long (formatter handles this)
+#   B008  — do not perform function calls in default args (used in FastAPI/LangGraph patterns)
+#   SIM108 — ternary operators (readability preference)
+#   UP007 — use X | Y for union types (keep Optional for 3.10 compat)
+ignore = ["E501", "B008", "SIM108", "UP007"]
+
+# Allow these in tests only
+[lint.per-file-ignores]
+"tests/*" = [
+    "S101",   # assert statements are fine in tests
+    "F841",   # local variable assigned but never used (common in test fixtures)
+]
+
+[format]
+# Double quotes everywhere (matches existing codebase)
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

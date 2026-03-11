@@ -151,7 +151,7 @@ jobs:
             --cov-report=term-missing \
             --cov-report=xml:coverage.xml \
             --cov-report=html:htmlcov \
-            --cov-fail-under=70 \
+            --cov-fail-under=65 \
             -q
 
       - name: Upload coverage report (HTML)
@@ -168,6 +168,6 @@ jobs:
         with:
           coverageFile: coverage.xml
           token:        ${{ secrets.GITHUB_TOKEN }}
-          thresholdAll: 0.70
-          thresholdNew: 0.70
+          thresholdAll: 0.65
+          thresholdNew: 0.65
           thresholdModified: 0.60

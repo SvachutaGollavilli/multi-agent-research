@@ -33,7 +33,7 @@ _WIKIPEDIA_PATTERNS: list[str] = [
 _TAVILY_PATTERNS: list[str] = [
     r"\blatest\b",
     r"\brecent\b",
-    r"\b202[3-9]\b",        # years 2023-2029
+    r"\b202[3-9]\b",  # years 2023-2029
     r"\bcurrent(ly)?\b",
     r"\bnews\b",
     r"\btoday\b",
@@ -51,7 +51,7 @@ _TAVILY_PATTERNS: list[str] = [
 ]
 
 # Compiled once at import — never inside a function
-_WIKI_RE   = [re.compile(p, re.IGNORECASE) for p in _WIKIPEDIA_PATTERNS]
+_WIKI_RE = [re.compile(p, re.IGNORECASE) for p in _WIKIPEDIA_PATTERNS]
 _TAVILY_RE = [re.compile(p, re.IGNORECASE) for p in _TAVILY_PATTERNS]
 
 
@@ -74,35 +74,35 @@ def select_tool(query: str) -> dict:
     - both hit                            → both      (split signals)
     - neither hits                        → tavily    (default — live web safer)
     """
-    wiki_hits   = sum(1 for r in _WIKI_RE   if r.search(query))
+    wiki_hits = sum(1 for r in _WIKI_RE if r.search(query))
     tavily_hits = sum(1 for r in _TAVILY_RE if r.search(query))
 
     if wiki_hits > 0 and tavily_hits == 0:
-        tool       = "wikipedia"
+        tool = "wikipedia"
         confidence = min(0.6 + wiki_hits * 0.1, 0.95)
-        reason     = f"matched {wiki_hits} wikipedia indicator(s)"
+        reason = f"matched {wiki_hits} wikipedia indicator(s)"
 
     elif tavily_hits > 0 and wiki_hits == 0:
-        tool       = "tavily"
+        tool = "tavily"
         confidence = min(0.6 + tavily_hits * 0.1, 0.95)
-        reason     = f"matched {tavily_hits} tavily indicator(s)"
+        reason = f"matched {tavily_hits} tavily indicator(s)"
 
     elif wiki_hits > 0 and tavily_hits > 0:
-        tool       = "both"
+        tool = "both"
         confidence = 0.5
-        reason     = f"mixed signals: {wiki_hits} wiki + {tavily_hits} tavily hits"
+        reason = f"mixed signals: {wiki_hits} wiki + {tavily_hits} tavily hits"
 
     else:
         # No keywords matched — default to Tavily (live web is safer default)
-        tool       = "tavily"
+        tool = "tavily"
         confidence = 0.5
-        reason     = "no keyword match — defaulting to tavily"
+        reason = "no keyword match — defaulting to tavily"
 
     result = {
-        "tool":        tool,
-        "confidence":  round(confidence, 2),
-        "reason":      reason,
-        "wiki_hits":   wiki_hits,
+        "tool": tool,
+        "confidence": round(confidence, 2),
+        "reason": reason,
+        "wiki_hits": wiki_hits,
         "tavily_hits": tavily_hits,
     }
 

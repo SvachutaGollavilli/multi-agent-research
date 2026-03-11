@@ -33,13 +33,14 @@ def planner_agent(state: ResearchState) -> dict:
     - Uses with_structured_output() — guaranteed PlannerOutput schema
     """
     run_id = state.get("run_id", "")
-    query  = state.get("query", "")
+    query = state.get("query", "")
     event_id, t0 = log_agent_start(run_id, "planner", {"query": query})
 
     logger.info(f"[planner] starting | query: '{query[:60]}'")
 
     try:
         from src.config import get_pipeline_config
+
         max_topics = get_pipeline_config().get("max_sub_topics", 3)
 
         # include_raw=True returns {"raw": AIMessage, "parsed": PlannerOutput}
@@ -50,12 +51,12 @@ def planner_agent(state: ResearchState) -> dict:
             f"1-{max_topics} focused, searchable sub-questions.\n\n"
             f"Query: {query}\n\n"
             f"Return {max_topics} sub-topics and a brief research strategy."
-            )
+        )
 
         # parsed is the PlannerOutput Pydantic object
         # raw is the AIMessage that carries usage_metadata
         result: PlannerOutput = raw_result["parsed"]
-        raw_message           = raw_result["raw"]
+        raw_message = raw_result["raw"]
 
         sub_topics = result.sub_topics[:max_topics]
         logger.info(f"[planner] decomposed into {len(sub_topics)} sub-topics")
@@ -70,21 +71,28 @@ def planner_agent(state: ResearchState) -> dict:
             run_id=run_id,
         )
         log_cost(cost_record)
-        log_agent_end(event_id, run_id, "planner", t0,
-                      tokens_used=usage.total_tokens,
-                      cost_usd=cost_record.cost_usd)
+        log_agent_end(
+            event_id,
+            run_id,
+            "planner",
+            t0,
+            tokens_used=usage.total_tokens,
+            cost_usd=cost_record.cost_usd,
+        )
 
         return {
-            "sub_topics":    sub_topics,
+            "sub_topics": sub_topics,
             "research_plan": result.research_plan,
-            "token_count":   usage.total_tokens,
-            "cost_usd":      cost_record.cost_usd,
-            "pipeline_trace": [{
-                "agent":    "planner",
-                "duration_ms": int((time.time() - t0) * 1000),
-                "tokens":   usage.total_tokens,
-                "summary":  f"Decomposed into {len(sub_topics)} sub-topics",
-            }],
+            "token_count": usage.total_tokens,
+            "cost_usd": cost_record.cost_usd,
+            "pipeline_trace": [
+                {
+                    "agent": "planner",
+                    "duration_ms": int((time.time() - t0) * 1000),
+                    "tokens": usage.total_tokens,
+                    "summary": f"Decomposed into {len(sub_topics)} sub-topics",
+                }
+            ],
         }
 
     except Exception as e:
@@ -92,12 +100,14 @@ def planner_agent(state: ResearchState) -> dict:
         log_agent_end(event_id, run_id, "planner", t0, error=str(e))
         # Fallback — use original query as single sub-topic
         return {
-            "sub_topics":    [query],
+            "sub_topics": [query],
             "research_plan": "Direct research (planner error)",
-            "errors":        [f"Planner error: {e}"],
-            "pipeline_trace": [{
-                "agent":   "planner",
-                "duration_ms": int((time.time() - t0) * 1000),
-                "summary": "Error — fallback to direct query",
-            }],
+            "errors": [f"Planner error: {e}"],
+            "pipeline_trace": [
+                {
+                    "agent": "planner",
+                    "duration_ms": int((time.time() - t0) * 1000),
+                    "summary": "Error — fallback to direct query",
+                }
+            ],
         }

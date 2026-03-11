@@ -413,7 +413,6 @@ class TestReviewerRefinementLoop:
             patch("src.observability.logger.log_agent_end", return_value=None),
             patch("src.observability.logger.log_cost", return_value=None),
         ):
-
             state = default_state("q", run_id="test")
             state["revision_count"] = 1  # already revised once
             state["review"] = {

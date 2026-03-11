@@ -141,7 +141,7 @@ class TestPydanticSchemas:
     def test_planner_output_valid(self):
         out = PlannerOutput(
             sub_topics=["FAISS algorithm", "FAISS GPU"],
-            research_plan="Search technical docs.",
+            research_plan="Search FAISS technical docs.",
         )
         assert len(out.sub_topics) == 2
         assert "FAISS" in out.research_plan

@@ -140,8 +140,57 @@ class TestFullPipelineMocked:
             score=8, issues=[], suggestions=["Add a comparison table"], passed=True
         )
 
+        # Build mock LLM instances per agent.
+        # Agents create _llm as a module-level singleton, so we must patch
+        # the already-created instance in each module, not the class constructor.
+        mock_planner_llm = MagicMock()
+        mock_analyst_llm = MagicMock()
+        mock_reviewer_llm = MagicMock()
+        mock_synthesizer_llm = MagicMock()
+        mock_writer_llm = MagicMock()
+
+        # structured_output chain (planner, analyst, reviewer)
+        mock_planner_struct = MagicMock()
+        mock_planner_llm.with_structured_output.return_value = mock_planner_struct
+        mock_planner_struct.invoke.return_value = _make_structured_llm_response(
+            planner_obj
+        )
+
+        mock_analyst_struct = MagicMock()
+        mock_analyst_llm.with_structured_output.return_value = mock_analyst_struct
+        mock_analyst_struct.invoke.return_value = _make_structured_llm_response(
+            analyst_obj
+        )
+
+        mock_reviewer_struct = MagicMock()
+        mock_reviewer_llm.with_structured_output.return_value = mock_reviewer_struct
+        mock_reviewer_struct.invoke.return_value = _make_structured_llm_response(
+            reviewer_pass
+        )
+
+        # plain invoke (synthesizer, writer)
+        mock_synthesizer_llm.invoke.return_value = _make_llm_response(
+            "FAISS is a high-performance library by Meta AI for dense "
+            "vector similarity search. It supports GPU acceleration and "
+            "multiple index types including IVF and HNSW."
+        )
+        mock_writer_llm.invoke.return_value = _make_llm_response(
+            "## Executive Summary\n"
+            "FAISS (Facebook AI Similarity Search) is a library by Meta AI.\n\n"
+            "## Key Findings\n"
+            "- FAISS supports billion-scale GPU search [Source 1]\n"
+            "- IVF and HNSW indexes trade off speed/recall [Source 3]\n\n"
+            "## Analysis\nFAISS is widely adopted for production vector search.\n\n"
+            "## Conclusion\nFAISS is the leading open-source library for similarity search.\n\n"
+            "## Sources\n[1] FB Engineering Blog\n[2] Wikipedia\n[3] Pinecone Tutorial\n"
+        )
+
         with (
-            patch("langchain_anthropic.ChatAnthropic") as MockLLM,
+            patch("src.agents.planner._llm", mock_planner_llm),
+            patch("src.agents.analyst._llm", mock_analyst_llm),
+            patch("src.agents.reviewer._llm", mock_reviewer_llm),
+            patch("src.agents.synthesizer._llm", mock_synthesizer_llm),
+            patch("src.agents.writer._llm", mock_writer_llm),
             patch(
                 "src.tools.async_search.async_search_web",
                 new=AsyncMock(return_value=FAKE_SOURCES),
@@ -162,39 +211,6 @@ class TestFullPipelineMocked:
             patch("src.agents.graph.end_run", return_value=None),
             patch("src.agents.graph.write_report", return_value="/tmp/r.docx"),
         ):
-            mock_llm_instance = MagicMock()
-            MockLLM.return_value = mock_llm_instance
-
-            # structured_output chain: .with_structured_output(...).invoke(...)
-            mock_structured = MagicMock()
-            mock_llm_instance.with_structured_output.return_value = mock_structured
-
-            # Route calls by iteration
-            mock_structured.invoke.side_effect = [
-                _make_structured_llm_response(planner_obj),  # planner
-                _make_structured_llm_response(analyst_obj),  # analyst
-                _make_structured_llm_response(reviewer_pass),  # reviewer (first)
-            ]
-
-            # Plain invoke for synthesizer + writer
-            mock_llm_instance.invoke.side_effect = [
-                _make_llm_response(
-                    "FAISS is a high-performance library by Meta AI for dense "
-                    "vector similarity search. It supports GPU acceleration and "
-                    "multiple index types including IVF and HNSW.",
-                ),  # synthesizer
-                _make_llm_response(
-                    "## Executive Summary\n"
-                    "FAISS (Facebook AI Similarity Search) is a library by Meta AI.\n\n"
-                    "## Key Findings\n"
-                    "- FAISS supports billion-scale GPU search [Source 1]\n"
-                    "- IVF and HNSW indexes trade off speed/recall [Source 3]\n\n"
-                    "## Analysis\nFAISS is widely adopted for production vector search.\n\n"
-                    "## Conclusion\nFAISS is the leading open-source library for similarity search.\n\n"
-                    "## Sources\n[1] FB Engineering Blog\n[2] Wikipedia\n[3] Pinecone Tutorial\n"
-                ),  # writer
-            ]
-
             from src.agents.graph import run_pipeline
 
             return run_pipeline(query)
@@ -380,8 +396,13 @@ class TestReviewerRefinementLoop:
 
     def test_writer_uses_revision_prompt_on_second_call(self):
         """Writer should detect revision_count>0 and use reviewer feedback."""
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = _make_llm_response(
+            "## Executive Summary\nRevised draft with better citations.\n\n"
+            "## Sources\n[1] FB Blog\n"
+        )
         with (
-            patch("langchain_anthropic.ChatAnthropic") as MockLLM,
+            patch("src.agents.writer._llm", mock_llm),
             patch(
                 "src.guardrails.scrub_pii",
                 return_value=("revised draft v2 content " * 30, []),
@@ -392,12 +413,6 @@ class TestReviewerRefinementLoop:
             patch("src.observability.logger.log_agent_end", return_value=None),
             patch("src.observability.logger.log_cost", return_value=None),
         ):
-            mock_llm = MagicMock()
-            MockLLM.return_value = mock_llm
-            mock_llm.invoke.return_value = _make_llm_response(
-                "## Executive Summary\nRevised draft with better citations.\n\n"
-                "## Sources\n[1] FB Blog\n"
-            )
 
             state = default_state("q", run_id="test")
             state["revision_count"] = 1  # already revised once

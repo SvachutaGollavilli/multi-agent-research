@@ -40,9 +40,9 @@ def reviewer_agent(state: ResearchState) -> dict:
     - Sets review.passed = True if score >= review_pass_score from config
     - Does NOT decide whether to loop — that is graph.py's job
     """
-    run_id         = state.get("run_id", "")
-    query          = state.get("query", "")
-    current_draft  = state.get("current_draft", "")
+    run_id = state.get("run_id", "")
+    query = state.get("query", "")
+    current_draft = state.get("current_draft", "")
     revision_count = state.get("revision_count", 0)
 
     event_id, t0 = log_agent_start(run_id, "reviewer", {"revision": revision_count})
@@ -51,11 +51,20 @@ def reviewer_agent(state: ResearchState) -> dict:
     if not current_draft:
         log_agent_end(event_id, run_id, "reviewer", t0, error="No draft to review")
         return {
-            "review": {"score": 0, "issues": ["No draft available"], "suggestions": [], "passed": False},
-            "pipeline_trace": [{
-                "agent": "reviewer", "duration_ms": 0, "tokens": 0,
-                "summary": "Skipped — no draft",
-            }],
+            "review": {
+                "score": 0,
+                "issues": ["No draft available"],
+                "suggestions": [],
+                "passed": False,
+            },
+            "pipeline_trace": [
+                {
+                    "agent": "reviewer",
+                    "duration_ms": 0,
+                    "tokens": 0,
+                    "summary": "Skipped — no draft",
+                }
+            ],
         }
 
     pass_score = get_pipeline_config().get("review_pass_score", 7)
@@ -80,21 +89,38 @@ def reviewer_agent(state: ResearchState) -> dict:
             )
 
             result: ReviewOutput = raw_result["parsed"]
-            raw_message          = raw_result["raw"]
+            raw_message = raw_result["raw"]
 
             if result is None:
                 parsing_error = raw_result.get("parsing_error", "unknown")
-                logger.warning(f"[reviewer] attempt {attempt+1}: parsed=None ({parsing_error})")
+                logger.warning(
+                    f"[reviewer] attempt {attempt + 1}: parsed=None ({parsing_error})"
+                )
                 if attempt == 0:
                     continue
                 # Second failure — pass with a neutral score to avoid blocking the pipeline
-                log_agent_end(event_id, run_id, "reviewer", t0, error=f"Parse failed: {parsing_error}")
+                log_agent_end(
+                    event_id,
+                    run_id,
+                    "reviewer",
+                    t0,
+                    error=f"Parse failed: {parsing_error}",
+                )
                 return {
-                    "review": {"score": pass_score, "issues": [], "suggestions": [], "passed": True},
-                    "pipeline_trace": [{
-                        "agent": "reviewer", "duration_ms": int((time.time() - t0) * 1000),
-                        "tokens": 0, "summary": "Parse failed — passing draft",
-                    }],
+                    "review": {
+                        "score": pass_score,
+                        "issues": [],
+                        "suggestions": [],
+                        "passed": True,
+                    },
+                    "pipeline_trace": [
+                        {
+                            "agent": "reviewer",
+                            "duration_ms": int((time.time() - t0) * 1000),
+                            "tokens": 0,
+                            "summary": "Parse failed — passing draft",
+                        }
+                    ],
                 }
 
             # Enforce config pass_score regardless of LLM's passed field
@@ -102,13 +128,13 @@ def reviewer_agent(state: ResearchState) -> dict:
             passed = result.score >= pass_score
 
             review = {
-                "score":       result.score,
-                "issues":      result.issues,
+                "score": result.score,
+                "issues": result.issues,
                 "suggestions": result.suggestions,
-                "passed":      passed,
+                "passed": passed,
             }
 
-            usage       = extract_token_usage(raw_message)
+            usage = extract_token_usage(raw_message)
             cost_record = calculate_cost(
                 model=get_model("reviewer"),
                 input_tokens=usage.input_tokens,
@@ -117,9 +143,14 @@ def reviewer_agent(state: ResearchState) -> dict:
                 run_id=run_id,
             )
             log_cost(cost_record)
-            log_agent_end(event_id, run_id, "reviewer", t0,
-                          tokens_used=usage.total_tokens,
-                          cost_usd=cost_record.cost_usd)
+            log_agent_end(
+                event_id,
+                run_id,
+                "reviewer",
+                t0,
+                tokens_used=usage.total_tokens,
+                cost_usd=cost_record.cost_usd,
+            )
 
             verdict = "PASS" if passed else "FAIL"
             logger.info(
@@ -128,31 +159,44 @@ def reviewer_agent(state: ResearchState) -> dict:
             )
 
             return {
-                "review":      review,
+                "review": review,
                 "token_count": usage.total_tokens,
-                "cost_usd":    cost_record.cost_usd,
-                "pipeline_trace": [{
-                    "agent":       "reviewer",
-                    "duration_ms": int((time.time() - t0) * 1000),
-                    "tokens":      usage.total_tokens,
-                    "summary": (
-                        f"Score {result.score}/10 ({verdict}) | "
-                        f"{len(result.issues)} issues"
-                    ),
-                }],
+                "cost_usd": cost_record.cost_usd,
+                "pipeline_trace": [
+                    {
+                        "agent": "reviewer",
+                        "duration_ms": int((time.time() - t0) * 1000),
+                        "tokens": usage.total_tokens,
+                        "summary": (
+                            f"Score {result.score}/10 ({verdict}) | "
+                            f"{len(result.issues)} issues"
+                        ),
+                    }
+                ],
             }
 
         except Exception as e:
-            logger.error(f"[reviewer] attempt {attempt+1} failed: {e}")
+            logger.error(f"[reviewer] attempt {attempt + 1} failed: {e}")
             if attempt == 1:
                 log_agent_end(event_id, run_id, "reviewer", t0, error=str(e))
                 return {
-                    "review": {"score": pass_score, "issues": [], "suggestions": [], "passed": True},
+                    "review": {
+                        "score": pass_score,
+                        "issues": [],
+                        "suggestions": [],
+                        "passed": True,
+                    },
                     "errors": [f"Reviewer error: {e}"],
-                    "pipeline_trace": [{
-                        "agent": "reviewer", "duration_ms": int((time.time() - t0) * 1000),
-                        "tokens": 0, "summary": f"Error: {e} — passing draft",
-                    }],
+                    "pipeline_trace": [
+                        {
+                            "agent": "reviewer",
+                            "duration_ms": int((time.time() - t0) * 1000),
+                            "tokens": 0,
+                            "summary": f"Error: {e} — passing draft",
+                        }
+                    ],
                 }
 
-    return {"review": {"score": pass_score, "issues": [], "suggestions": [], "passed": True}}
+    return {
+        "review": {"score": pass_score, "issues": [], "suggestions": [], "passed": True}
+    }

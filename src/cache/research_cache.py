@@ -87,7 +87,9 @@ def _get_embedder():
             else:
                 os.environ["HF_HUB_OFFLINE"] = prev_offline
 
-            logger.info("[cache] downloading embedding model all-MiniLM-L6-v2 (one-time ~80MB)...")
+            logger.info(
+                "[cache] downloading embedding model all-MiniLM-L6-v2 (one-time ~80MB)..."
+            )
             _embedder = SentenceTransformer("all-MiniLM-L6-v2")
             logger.info("[cache] embedding model downloaded and cached")
 
@@ -116,7 +118,7 @@ def _embed(text: str) -> Optional[list[float]]:
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    dot    = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b))
     norm_a = sum(x * x for x in a) ** 0.5
     norm_b = sum(x * x for x in b) ** 0.5
     if norm_a == 0 or norm_b == 0:
@@ -125,6 +127,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 
 
 # ── DB setup ──────────────────────────────────
+
 
 def _get_conn() -> sqlite3.Connection:
     os.makedirs(os.path.dirname(_DB_PATH), exist_ok=True)
@@ -150,11 +153,12 @@ def _ensure_table() -> None:
             "CREATE INDEX IF NOT EXISTS idx_cache_created ON query_cache(created_at)"
         )
         existing_cols = [
-            row[1]
-            for row in conn.execute("PRAGMA table_info(query_cache)").fetchall()
+            row[1] for row in conn.execute("PRAGMA table_info(query_cache)").fetchall()
         ]
         if "embedding" not in existing_cols:
-            conn.execute("ALTER TABLE query_cache ADD COLUMN embedding TEXT DEFAULT NULL")
+            conn.execute(
+                "ALTER TABLE query_cache ADD COLUMN embedding TEXT DEFAULT NULL"
+            )
             logger.info("[cache] migrated: added 'embedding' column to query_cache")
 
 
@@ -167,6 +171,7 @@ def _hash_query(query: str) -> str:
 
 # ── Public API ────────────────────────────────
 
+
 def fetch(query: str) -> Optional[list[dict]]:
     """
     Two-level cache lookup.
@@ -177,8 +182,8 @@ def fetch(query: str) -> Optional[list[dict]]:
     if not cfg.get("enabled", True):
         return None
 
-    ttl    = cfg.get("ttl_seconds", 86400)
-    now    = time.time()
+    ttl = cfg.get("ttl_seconds", 86400)
+    now = time.time()
     cutoff = now - ttl
 
     # ── Level 1: Exact match ─────────────────────────────────────────────
@@ -228,13 +233,13 @@ def fetch(query: str) -> Optional[list[dict]]:
         return None
 
     best_score = 0.0
-    best_row   = None
+    best_row = None
     for row in rows:
         try:
             score = _cosine_similarity(query_vec, json.loads(row["embedding"]))
             if score > best_score:
                 best_score = score
-                best_row   = row
+                best_row = row
         except Exception:
             continue
 
@@ -291,7 +296,14 @@ def store(query: str, results: list[dict], tool_used: str = "unknown") -> None:
                     (query_hash, query, results, tool_used, created_at, hit_count, embedding)
                 VALUES (?, ?, ?, ?, ?, 0, ?)
                 """,
-                (key, query.strip(), json.dumps(unique), tool_used, time.time(), embedding_json),
+                (
+                    key,
+                    query.strip(),
+                    json.dumps(unique),
+                    tool_used,
+                    time.time(),
+                    embedding_json,
+                ),
             )
         label = "with embedding" if embedding_json else "no embedding"
         logger.debug(f"[cache] STORE ({len(unique)} results, {label}): '{query[:50]}'")
@@ -310,7 +322,7 @@ def invalidate(query: str) -> None:
 
 
 def evict_stale() -> int:
-    ttl    = get_cache_config().get("ttl_seconds", 86400)
+    ttl = get_cache_config().get("ttl_seconds", 86400)
     cutoff = time.time() - ttl
     try:
         with _get_conn() as conn:
@@ -328,24 +340,25 @@ def evict_stale() -> int:
 def stats() -> dict:
     try:
         with _get_conn() as conn:
-            total    = conn.execute("SELECT COUNT(*) FROM query_cache").fetchone()[0]
-            ttl      = get_cache_config().get("ttl_seconds", 86400)
-            cutoff   = time.time() - ttl
-            fresh    = conn.execute(
+            total = conn.execute("SELECT COUNT(*) FROM query_cache").fetchone()[0]
+            ttl = get_cache_config().get("ttl_seconds", 86400)
+            cutoff = time.time() - ttl
+            fresh = conn.execute(
                 "SELECT COUNT(*) FROM query_cache WHERE created_at >= ?", (cutoff,)
             ).fetchone()[0]
-            hits     = conn.execute(
-                "SELECT SUM(hit_count) FROM query_cache"
-            ).fetchone()[0] or 0
+            hits = (
+                conn.execute("SELECT SUM(hit_count) FROM query_cache").fetchone()[0]
+                or 0
+            )
             with_emb = conn.execute(
                 "SELECT COUNT(*) FROM query_cache WHERE embedding IS NOT NULL"
             ).fetchone()[0]
         return {
-            "total_entries":        total,
-            "fresh_entries":        fresh,
-            "stale_entries":        total - fresh,
-            "total_hits":           hits,
-            "with_embeddings":      with_emb,
+            "total_entries": total,
+            "fresh_entries": fresh,
+            "stale_entries": total - fresh,
+            "total_hits": hits,
+            "with_embeddings": with_emb,
             "similarity_threshold": _get_similarity_threshold(),
         }
     except Exception as e:

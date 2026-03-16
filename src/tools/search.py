@@ -5,7 +5,8 @@ from tavily import TavilyClient
 
 load_dotenv()
 
-def search_web(query:str, max_results: int = 5) -> list[dict]:
+
+def search_web(query: str, max_results: int = 5) -> list[dict]:
     """
     Search the web using Tavily and return clean results.
 
@@ -19,19 +20,17 @@ def search_web(query:str, max_results: int = 5) -> list[dict]:
 
     client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 
-    response = client.search(
-        query = query,
-        max_results = max_results,
-        search_depth = 'basic'
-    )
+    response = client.search(query=query, max_results=max_results, search_depth="basic")
 
     results = []
-    for r in response.get('results', []):
-        results.append({
-            "title": r.get("title", ""),
-            "url": r.get("url", ""),
-            "content":r.get("content","")
-        })
+    for r in response.get("results", []):
+        results.append(
+            {
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "content": r.get("content", ""),
+            }
+        )
 
     return results
 

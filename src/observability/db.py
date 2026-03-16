@@ -34,10 +34,9 @@ logger = logging.getLogger(__name__)
 
 DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///data/pipeline.db")
 
-_IS_POSTGRES: bool = (
-    DATABASE_URL.startswith("postgresql://")
-    or DATABASE_URL.startswith("postgres://")
-)
+_IS_POSTGRES: bool = DATABASE_URL.startswith(
+    "postgresql://"
+) or DATABASE_URL.startswith("postgres://")
 
 _BASE_DIR: str = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -79,6 +78,7 @@ def _pg_connect() -> Any:
 # SQLite connections (thread-local, one per thread)
 # -----------------------------------------------------------------
 
+
 def _get_sqlite_conn() -> sqlite3.Connection:
     if not hasattr(_local, "conn") or _local.conn is None:
         os.makedirs(os.path.dirname(_SQLITE_PATH), exist_ok=True)
@@ -102,6 +102,7 @@ def close_connection() -> None:
 # -----------------------------------------------------------------
 # Schema -- SQLite
 # -----------------------------------------------------------------
+
 
 def _create_tables_sqlite(conn: sqlite3.Connection) -> None:
     conn.executescript("""
@@ -155,6 +156,7 @@ def _create_tables_sqlite(conn: sqlite3.Connection) -> None:
 # Schema -- PostgreSQL
 # (idempotent -- safe to run multiple times)
 # -----------------------------------------------------------------
+
 
 def _ensure_tables_postgres() -> None:
     """Create tables on Postgres if they don't exist yet."""
@@ -225,6 +227,7 @@ else:
 # Unified query helpers
 # -----------------------------------------------------------------
 
+
 def execute(sql: str, params: tuple = ()) -> None:
     """
     Execute a write (INSERT / UPDATE / DELETE) on the active backend.
@@ -267,20 +270,25 @@ def fetchone(sql: str, params: tuple = ()) -> Optional[dict]:
 # Stats helper
 # -----------------------------------------------------------------
 
+
 def get_db_stats() -> dict:
     try:
-        runs_row   = fetchone("SELECT COUNT(*) as n FROM pipeline_runs") or {}
+        runs_row = fetchone("SELECT COUNT(*) as n FROM pipeline_runs") or {}
         events_row = fetchone("SELECT COUNT(*) as n FROM agent_events") or {}
-        cost_row   = fetchone(
-            "SELECT COALESCE(SUM(total_cost), 0.0) as total FROM pipeline_runs"
-        ) or {}
+        cost_row = (
+            fetchone(
+                "SELECT COALESCE(SUM(total_cost), 0.0) as total FROM pipeline_runs"
+            )
+            or {}
+        )
         return {
-            "total_runs":         runs_row.get("n", 0),
+            "total_runs": runs_row.get("n", 0),
             "total_agent_events": events_row.get("n", 0),
-            "total_cost_usd":     round(float(cost_row.get("total", 0.0)), 6),
-            "backend":            "postgresql" if _IS_POSTGRES else "sqlite",
-            "db_url":             DATABASE_URL[:50] + "..." if len(DATABASE_URL) > 50
-                                  else DATABASE_URL,
+            "total_cost_usd": round(float(cost_row.get("total", 0.0)), 6),
+            "backend": "postgresql" if _IS_POSTGRES else "sqlite",
+            "db_url": DATABASE_URL[:50] + "..."
+            if len(DATABASE_URL) > 50
+            else DATABASE_URL,
         }
     except Exception as e:
         logger.error(f"get_db_stats error: {e}")

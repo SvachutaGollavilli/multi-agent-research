@@ -21,6 +21,7 @@ def _inject_secrets() -> None:
     except Exception:
         pass
 
+
 _inject_secrets()
 
 from src.agents.graph import stream_pipeline_async
@@ -35,7 +36,8 @@ st.set_page_config(
 )
 
 # ── CSS ──────────────────────────────────────────────────────────
-st.markdown("""
+st.markdown(
+    """
 <style>
 html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 
@@ -186,26 +188,30 @@ div[data-testid="stFormSubmitButton"] button:hover { opacity:.85 !important; }
 
 footer, #MainMenu { visibility:hidden; }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 
 # ── Node definitions ─────────────────────────────────────────────
 PIPELINE_NODES = [
-    ("planner",        "Planner",   "📋"),
-    ("researcher",     "Research",  "🔍"),
-    ("merge_research", "Merge",     "🔗"),
-    ("quality_gate",   "Quality",   "✅"),
-    ("analyst",        "Analysis",  "🧠"),
-    ("synthesizer",    "Synthesis", "⚗️"),
-    ("writer",         "Writer",    "✍️"),
-    ("reviewer",       "Review",    "📝"),
+    ("planner", "Planner", "📋"),
+    ("researcher", "Research", "🔍"),
+    ("merge_research", "Merge", "🔗"),
+    ("quality_gate", "Quality", "✅"),
+    ("analyst", "Analysis", "🧠"),
+    ("synthesizer", "Synthesis", "⚗️"),
+    ("writer", "Writer", "✍️"),
+    ("reviewer", "Review", "📝"),
 ]
 NODE_MAP = {k: (lbl, ico) for k, lbl, ico in PIPELINE_NODES}
-NODE_MAP.update({
-    "cache_loader":     ("Cache Hit", "⚡"),
-    "retry_counter":    ("Retry",     "🔄"),
-    "fan_out_or_cache": ("Routing",   "↗️"),
-})
+NODE_MAP.update(
+    {
+        "cache_loader": ("Cache Hit", "⚡"),
+        "retry_counter": ("Retry", "🔄"),
+        "fan_out_or_cache": ("Routing", "↗️"),
+    }
+)
 
 
 # ── Session state ────────────────────────────────────────────────
@@ -213,11 +219,11 @@ def _init():
     if "sid" not in st.session_state:
         st.session_state.sid = uuid.uuid4().hex[:8].upper()
     for k, v in {
-        "total_runs":   0,
-        "total_cost":   0.0,
+        "total_runs": 0,
+        "total_cost": 0.0,
         "total_tokens": 0,
-        "run_history":  [],   # newest first; each entry = dict
-        "downloads":    [],   # list of {label, bytes, filename}
+        "run_history": [],  # newest first; each entry = dict
+        "downloads": [],  # list of {label, bytes, filename}
     }.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -236,7 +242,7 @@ def _row(label, val):
 
 def render_sidebar():
     session_id = st.session_state.sid
-    n    = st.session_state.total_runs
+    n = st.session_state.total_runs
     cost = st.session_state.total_cost
     toks = st.session_state.total_tokens
     hist = st.session_state.run_history
@@ -253,9 +259,9 @@ def render_sidebar():
 
     totals = (
         "<span class='sb-sec'>Session</span>"
-        + _row("Queries run",    str(n))
+        + _row("Queries run", str(n))
         + _row("Total API cost", f"${cost:.4f}")
-        + _row("Total tokens",   f"{toks:,}")
+        + _row("Total tokens", f"{toks:,}")
     )
 
     history = ""
@@ -263,21 +269,21 @@ def render_sidebar():
         history += "<span class='sb-sec'>Run History</span>"
         for i, r in enumerate(hist):
             run_num = n - i
-            qs      = r.get("quality_score")
+            qs = r.get("quality_score")
             q_label = ("PASS" if r.get("quality_passed") else "FAIL") if qs else "—"
-            q_str   = f"{qs:.2f} {q_label}" if qs is not None else "—"
-            score   = r.get("review_score")
-            dur     = r.get("duration")
+            q_str = f"{qs:.2f} {q_label}" if qs is not None else "—"
+            score = r.get("review_score")
+            dur = r.get("duration")
             history += f"""
             <div class="rc">
-                <div class="rc-hd"><b>Run #{run_num}</b> · {r.get('qp','')}</div>
+                <div class="rc-hd"><b>Run #{run_num}</b> · {r.get("qp", "")}</div>
                 <div class="rc-g">
-                    <div class="rc-i"><span class="il">Sources </span><span class="iv">{r.get('sources','—')}</span></div>
-                    <div class="rc-i"><span class="il">Claims </span><span class="iv">{r.get('claims','—')}</span></div>
+                    <div class="rc-i"><span class="il">Sources </span><span class="iv">{r.get("sources", "—")}</span></div>
+                    <div class="rc-i"><span class="il">Claims </span><span class="iv">{r.get("claims", "—")}</span></div>
                     <div class="rc-i"><span class="il">Time </span><span class="iv">{f"{dur:.0f}s" if dur else "—"}</span></div>
                     <div class="rc-i"><span class="il">Review </span><span class="iv">{f"{score}/10" if score else "—"}</span></div>
                     <div class="rc-i"><span class="il">Quality </span><span class="iv">{q_str}</span></div>
-                    <div class="rc-i"><span class="il">Cost </span><span class="iv">${r.get('cost',0):.4f}</span></div>
+                    <div class="rc-i"><span class="il">Cost </span><span class="iv">${r.get("cost", 0):.4f}</span></div>
                 </div>
             </div>"""
 
@@ -289,12 +295,12 @@ def render_sidebar():
 def render_tracker(visit_log, active, revision_count):
     visited = set(visit_log)
     w_visits = visit_log.count("writer") + (1 if active == "writer" else 0)
-    on_loop  = w_visits > 1
+    on_loop = w_visits > 1
 
     nodes = ""
     for nid, lbl, ico in PIPELINE_NODES:
         is_act = nid == active
-        done   = nid in visited
+        done = nid in visited
         if is_act and on_loop and nid == "writer":
             cls, ind = "revisit", '<span class="dot-pulse purple"></span>'
         elif is_act:
@@ -309,7 +315,9 @@ def render_tracker(visit_log, active, revision_count):
 
     html = f'<div class="pipeline-track">{nodes}</div>'
     if on_loop:
-        html += f'<div class="revision-badge">🔄 Revision loop — pass {w_visits-1}</div>'
+        html += (
+            f'<div class="revision-badge">🔄 Revision loop — pass {w_visits - 1}</div>'
+        )
     st.markdown(html, unsafe_allow_html=True)
 
 
@@ -323,7 +331,8 @@ def main():
 
     # ── Hero ─────────────────────────────────────────────────────
     sid = st.session_state.sid
-    st.markdown(f"""
+    st.markdown(
+        f"""
     <div class="hero-banner">
         <div class="hero-row">
             <div>
@@ -333,14 +342,17 @@ def main():
             <div class="session-pill">Session <span>#{sid}</span></div>
         </div>
     </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
     # ── Search form ──────────────────────────────────────────────
     with st.form("sf", clear_on_submit=True):
         col_q, col_btn = st.columns([6, 1])
         with col_q:
             query = st.text_input(
-                "q", value="",
+                "q",
+                value="",
                 placeholder="Enter your research question…",
                 label_visibility="collapsed",
             )
@@ -372,24 +384,24 @@ def main():
 
         with col_track:
             tracker_ph = st.empty()
-            active_ph  = st.empty()
+            active_ph = st.empty()
 
         with col_live:
             live_ph = st.empty()
 
-        visit_log:    list[str]  = []
+        visit_log: list[str] = []
         current_node: str | None = None
-        revision_count           = 0
+        revision_count = 0
 
         def _refresh_tracker():
             with tracker_ph.container():
                 render_tracker(visit_log, current_node, revision_count)
 
         def _refresh_live(acc: dict):
-            srcs   = len(acc.get("sources", []))
+            srcs = len(acc.get("sources", []))
             claims = len(acc.get("key_claims", []))
-            cost   = acc.get("cost_usd", 0)
-            qs     = acc.get("quality_score")
+            cost = acc.get("cost_usd", 0)
+            qs = acc.get("quality_score")
             live_ph.markdown(
                 f"<div style='background:#0f172a;border:1px solid #1e293b;"
                 f"border-radius:10px;padding:.8rem;font-size:.78rem;'>"
@@ -398,7 +410,11 @@ def main():
                 f"<div style='color:#94a3b8;margin-bottom:3px'>Sources <b style='color:#e2e8f0'>{srcs}</b></div>"
                 f"<div style='color:#94a3b8;margin-bottom:3px'>Claims <b style='color:#e2e8f0'>{claims}</b></div>"
                 f"<div style='color:#94a3b8;margin-bottom:3px'>Cost <b style='color:#e2e8f0'>${cost:.4f}</b></div>"
-                + (f"<div style='color:#94a3b8'>Quality <b style='color:#e2e8f0'>{qs:.2f}</b></div>" if qs else "")
+                + (
+                    f"<div style='color:#94a3b8'>Quality <b style='color:#e2e8f0'>{qs:.2f}</b></div>"
+                    if qs
+                    else ""
+                )
                 + "</div>",
                 unsafe_allow_html=True,
             )
@@ -408,38 +424,44 @@ def main():
         status_box = st.status("Starting pipeline…", expanded=False)
 
         # ── Run ───────────────────────────────────────────────────
-        final_state: dict     = {}
-        run_t0                = time.time()
+        final_state: dict = {}
+        run_t0 = time.time()
         run_error: str | None = None
 
         try:
             for node_name, _update, accumulated in stream_pipeline_async(query):
                 final_state = accumulated
 
-                if current_node and current_node not in ("retry_counter", "fan_out_or_cache"):
+                if current_node and current_node not in (
+                    "retry_counter",
+                    "fan_out_or_cache",
+                ):
                     visit_log.append(current_node)
 
-                current_node   = node_name
+                current_node = node_name
                 revision_count = accumulated.get("revision_count", 0)
 
                 label, icon = NODE_MAP.get(node_name, (node_name, "⚙️"))
-                on_loop     = visit_log.count("writer") >= 1 and node_name == "writer"
-                dot_cls     = "dot-pulse purple" if on_loop else "dot-pulse"
-                txt_color   = "#c084fc"          if on_loop else "#93c5fd"
-                extra       = " (revision)" if on_loop else ""
+                on_loop = visit_log.count("writer") >= 1 and node_name == "writer"
+                dot_cls = "dot-pulse purple" if on_loop else "dot-pulse"
+                txt_color = "#c084fc" if on_loop else "#93c5fd"
+                extra = " (revision)" if on_loop else ""
 
                 active_ph.markdown(
                     f'<div class="active-agent">'
                     f'<span class="{dot_cls}"></span>'
                     f'<span style="color:{txt_color}">{icon} <strong>{label}</strong> — processing{extra}…</span>'
-                    f'</div>',
+                    f"</div>",
                     unsafe_allow_html=True,
                 )
                 _refresh_tracker()
                 _refresh_live(accumulated)
                 status_box.update(label=f"Running: {label}…")
 
-            if current_node and current_node not in ("retry_counter", "fan_out_or_cache"):
+            if current_node and current_node not in (
+                "retry_counter",
+                "fan_out_or_cache",
+            ):
                 visit_log.append(current_node)
             current_node = None
             active_ph.empty()
@@ -455,51 +477,53 @@ def main():
         duration = time.time() - run_t0
 
         # ── Update session state ──────────────────────────────────
-        run_cost   = final_state.get("cost_usd", 0)
+        run_cost = final_state.get("cost_usd", 0)
         run_tokens = final_state.get("token_count", 0)
-        qs         = final_state.get("quality_score")
+        qs = final_state.get("quality_score")
 
-        st.session_state.total_runs   += 1
-        st.session_state.total_cost   += run_cost
+        st.session_state.total_runs += 1
+        st.session_state.total_cost += run_cost
         st.session_state.total_tokens += run_tokens
 
         n = st.session_state.total_runs
-        st.session_state.run_history.insert(0, {
-            "qp":            query[:28] + ("…" if len(query) > 28 else ""),
-            "sources":       len(final_state.get("sources", [])),
-            "claims":        len(final_state.get("key_claims", [])),
-            "duration":      duration,
-            "cost":          run_cost,
-            "quality_score": qs,
-            "quality_passed": final_state.get("quality_passed"),
-            "review_score":  (final_state.get("review") or {}).get("score"),
-            "revisions":     final_state.get("revision_count"),
-        })
+        st.session_state.run_history.insert(
+            0,
+            {
+                "qp": query[:28] + ("…" if len(query) > 28 else ""),
+                "sources": len(final_state.get("sources", [])),
+                "claims": len(final_state.get("key_claims", [])),
+                "duration": duration,
+                "cost": run_cost,
+                "quality_score": qs,
+                "quality_passed": final_state.get("quality_passed"),
+                "review_score": (final_state.get("review") or {}).get("score"),
+                "revisions": final_state.get("revision_count"),
+            },
+        )
 
         render_sidebar()
 
         # ── Result summary bar ────────────────────────────────────
         if not run_error:
-            srcs   = len(final_state.get("sources", []))
+            srcs = len(final_state.get("sources", []))
             claims = len(final_state.get("key_claims", []))
-            score  = (final_state.get("review") or {}).get("score")
+            score = (final_state.get("review") or {}).get("score")
 
             st.markdown(
                 "<div class='result-bar'>"
-                + _mcard(srcs,                             "Sources")
-                + _mcard(claims,                           "Claims")
-                + _mcard(f"{duration:.0f}s",               "Run time")
-                + _mcard(f"${run_cost:.4f}",               "API cost")
-                + _mcard(f"{qs:.2f}" if qs else "—",       "Quality")
-                + _mcard(f"{score}/10" if score else "—",  "Review")
+                + _mcard(srcs, "Sources")
+                + _mcard(claims, "Claims")
+                + _mcard(f"{duration:.0f}s", "Run time")
+                + _mcard(f"${run_cost:.4f}", "API cost")
+                + _mcard(f"{qs:.2f}" if qs else "—", "Quality")
+                + _mcard(f"{score}/10" if score else "—", "Review")
                 + "</div>",
                 unsafe_allow_html=True,
             )
 
         # ── Report ────────────────────────────────────────────────
-        final_report = (
-            final_state.get("final_report")
-            or final_state.get("current_draft", "")
+        final_report = final_state.get("final_report") or final_state.get(
+            "current_draft", ""
         )
 
         if final_report:
@@ -513,18 +537,26 @@ def main():
 
             # Save download for this run
             try:
-                docx_path = write_report(final_state, run_id=final_state.get("run_id", ""))
+                docx_path = write_report(
+                    final_state, run_id=final_state.get("run_id", "")
+                )
                 with open(docx_path, "rb") as fh:
                     docx_bytes = fh.read()
-                safe = "".join(
-                    c if (c.isalnum() or c == "_") else "_"
-                    for c in query.lower()[:35].replace(" ", "_")
-                ).strip("_") or "report"
-                st.session_state.downloads.insert(0, {
-                    "label":    f"Query {n}: {query[:40]}",
-                    "bytes":    docx_bytes,
-                    "filename": f"q{n}_{safe}.docx",
-                })
+                safe = (
+                    "".join(
+                        c if (c.isalnum() or c == "_") else "_"
+                        for c in query.lower()[:35].replace(" ", "_")
+                    ).strip("_")
+                    or "report"
+                )
+                st.session_state.downloads.insert(
+                    0,
+                    {
+                        "label": f"Query {n}: {query[:40]}",
+                        "bytes": docx_bytes,
+                        "filename": f"q{n}_{safe}.docx",
+                    },
+                )
             except Exception as e:
                 st.caption(f"Could not generate .docx: {e}")
 
@@ -537,19 +569,26 @@ def main():
             with st.expander("🔎 Pipeline trace", expanded=False):
                 try:
                     import pandas as pd
+
                     rows = [
                         {
-                            "Agent":     NODE_MAP.get(t.get("agent",""), (t.get("agent",""),""))[0],
+                            "Agent": NODE_MAP.get(
+                                t.get("agent", ""), (t.get("agent", ""), "")
+                            )[0],
                             "Time (ms)": t.get("duration_ms", 0),
-                            "Tokens":    t.get("tokens", 0),
-                            "Summary":   t.get("summary", ""),
+                            "Tokens": t.get("tokens", 0),
+                            "Summary": t.get("summary", ""),
                         }
                         for t in trace
                     ]
-                    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                    st.dataframe(
+                        pd.DataFrame(rows), use_container_width=True, hide_index=True
+                    )
                 except ImportError:
                     for t in trace:
-                        st.text(f"{t.get('agent',''):14s}  {t.get('duration_ms',0):5d}ms  {t.get('summary','')}")
+                        st.text(
+                            f"{t.get('agent', ''):14s}  {t.get('duration_ms', 0):5d}ms  {t.get('summary', '')}"
+                        )
 
     # ── Downloads section (outside results_area, persists across runs) ──
     if st.session_state.downloads:

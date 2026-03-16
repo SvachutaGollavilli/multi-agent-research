@@ -31,8 +31,8 @@ def writer_agent(state: ResearchState) -> dict:
     - Revision call: rewrites using reviewer feedback
     - Scrubs PII from output before storing
     """
-    run_id          = state.get("run_id", "")
-    revision_count  = state.get("revision_count", 0)
+    run_id = state.get("run_id", "")
+    revision_count = state.get("revision_count", 0)
     existing_drafts = state.get("drafts", [])
 
     event_id, t0 = log_agent_start(run_id, "writer", {"revision": revision_count})
@@ -45,28 +45,32 @@ def writer_agent(state: ResearchState) -> dict:
             else _build_revision_prompt(state)
         )
 
-        response = _llm.invoke([
-            SystemMessage(content=(
-                "You are a concise professional research writer. "
-                "Write clear, well-structured markdown reports. "
-                "Be direct — no filler sentences. "
-                "Only use the facts provided — never invent citations."
-            )),
-            HumanMessage(content=prompt),
-        ])
+        response = _llm.invoke(
+            [
+                SystemMessage(
+                    content=(
+                        "You are a concise professional research writer. "
+                        "Write clear, well-structured markdown reports. "
+                        "Be direct — no filler sentences. "
+                        "Only use the facts provided — never invent citations."
+                    )
+                ),
+                HumanMessage(content=prompt),
+            ]
+        )
 
         guardrail_result = check_output(response.content)
         draft_text = guardrail_result.scrubbed_text or response.content
 
-        version   = revision_count + 1
+        version = revision_count + 1
         new_draft = {
-            "version":      version,
-            "content":      draft_text,
-            "char_count":   len(draft_text),
+            "version": version,
+            "content": draft_text,
+            "char_count": len(draft_text),
             "pii_scrubbed": guardrail_result.pii_found,
         }
 
-        usage       = extract_token_usage(response)
+        usage = extract_token_usage(response)
         cost_record = calculate_cost(
             model=get_model("writer"),
             input_tokens=usage.input_tokens,
@@ -75,24 +79,31 @@ def writer_agent(state: ResearchState) -> dict:
             run_id=run_id,
         )
         log_cost(cost_record)
-        log_agent_end(event_id, run_id, "writer", t0,
-                      tokens_used=usage.total_tokens,
-                      cost_usd=cost_record.cost_usd)
+        log_agent_end(
+            event_id,
+            run_id,
+            "writer",
+            t0,
+            tokens_used=usage.total_tokens,
+            cost_usd=cost_record.cost_usd,
+        )
 
         logger.info(f"[writer] draft v{version} written ({len(draft_text)} chars)")
 
         return {
-            "drafts":         existing_drafts + [new_draft],
-            "current_draft":  draft_text,
+            "drafts": existing_drafts + [new_draft],
+            "current_draft": draft_text,
             "revision_count": version,
-            "token_count":    usage.total_tokens,
-            "cost_usd":       cost_record.cost_usd,
-            "pipeline_trace": [{
-                "agent":       "writer",
-                "duration_ms": int((time.time() - t0) * 1000),
-                "tokens":      usage.total_tokens,
-                "summary":     f"Draft v{version}: {len(draft_text)} chars",
-            }],
+            "token_count": usage.total_tokens,
+            "cost_usd": cost_record.cost_usd,
+            "pipeline_trace": [
+                {
+                    "agent": "writer",
+                    "duration_ms": int((time.time() - t0) * 1000),
+                    "tokens": usage.total_tokens,
+                    "summary": f"Draft v{version}: {len(draft_text)} chars",
+                }
+            ],
         }
 
     except Exception as e:
@@ -100,21 +111,23 @@ def writer_agent(state: ResearchState) -> dict:
         log_agent_end(event_id, run_id, "writer", t0, error=str(e))
         return {
             "revision_count": revision_count + 1,
-            "errors":         [f"Writer error: {e}"],
-            "pipeline_trace": [{
-                "agent":       "writer",
-                "duration_ms": int((time.time() - t0) * 1000),
-                "summary":     f"Error: {e}",
-            }],
+            "errors": [f"Writer error: {e}"],
+            "pipeline_trace": [
+                {
+                    "agent": "writer",
+                    "duration_ms": int((time.time() - t0) * 1000),
+                    "summary": f"Error: {e}",
+                }
+            ],
         }
 
 
 def _build_initial_prompt(state: ResearchState) -> str:
-    query          = state.get("query", "")
-    synthesis      = state.get("synthesis", "")
-    key_claims     = state.get("key_claims", [])
+    query = state.get("query", "")
+    synthesis = state.get("synthesis", "")
+    key_claims = state.get("key_claims", [])
     source_ranking = state.get("source_ranking", [])
-    sources        = state.get("sources", [])
+    sources = state.get("sources", [])
 
     # Prefer synthesizer narrative; fall back to raw claims if synthesizer skipped
     if synthesis:
@@ -123,8 +136,8 @@ def _build_initial_prompt(state: ResearchState) -> str:
             f"{synthesis}\n\n"
             f"Supporting claims for detail:\n"
             + "\n".join(
-                f"- [{c.get('confidence','?').upper()}] {c['claim']} "
-                f"[Source {c.get('source_idx','?')}]"
+                f"- [{c.get('confidence', '?').upper()}] {c['claim']} "
+                f"[Source {c.get('source_idx', '?')}]"
                 for c in key_claims
             )
         )
@@ -132,19 +145,23 @@ def _build_initial_prompt(state: ResearchState) -> str:
         content_block = (
             "Key claims (no synthesis available — write from these directly):\n"
             + "\n".join(
-                f"- [{c.get('confidence','?').upper()}] {c['claim']} "
-                f"[Source {c.get('source_idx','?')}]"
+                f"- [{c.get('confidence', '?').upper()}] {c['claim']} "
+                f"[Source {c.get('source_idx', '?')}]"
                 for c in key_claims
             )
         )
 
     # Use ranked sources for citation if available, else original order
     cite_sources = source_ranking or [
-        {"source_idx": i + 1, "title": s.get("title", "Untitled"), "url": s.get("url", "")}
+        {
+            "source_idx": i + 1,
+            "title": s.get("title", "Untitled"),
+            "url": s.get("url", ""),
+        }
         for i, s in enumerate(sources[:8])
     ]
     sources_text = "\n".join(
-        f"[{s['source_idx']}] {s.get('title','Untitled')} — {s.get('url','')}"
+        f"[{s['source_idx']}] {s.get('title', 'Untitled')} — {s.get('url', '')}"
         for s in cite_sources[:8]
     )
 
@@ -164,10 +181,10 @@ def _build_initial_prompt(state: ResearchState) -> str:
 
 
 def _build_revision_prompt(state: ResearchState) -> str:
-    review   = state.get("review", {})
-    issues   = "\n".join(f"- {i}" for i in review.get("issues", []))
+    review = state.get("review", {})
+    issues = "\n".join(f"- {i}" for i in review.get("issues", []))
     suggests = "\n".join(f"- {s}" for s in review.get("suggestions", []))
-    current  = state.get("current_draft", "")
+    current = state.get("current_draft", "")
 
     return (
         f"Revise this research report to fix the issues below. "

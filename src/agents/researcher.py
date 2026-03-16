@@ -50,20 +50,20 @@ def researcher_agent(state: ResearchState) -> dict:
     Receives current_topic from Send() -- the specific sub-topic to research.
     Falls back to query if current_topic is not set (direct/retry calls).
     """
-    run_id        = state.get("run_id", "")
-    query         = state.get("query", "")
+    run_id = state.get("run_id", "")
+    query = state.get("query", "")
     current_topic = state.get("current_topic", "") or query
 
     event_id, t0 = log_agent_start(run_id, "researcher", {"topic": current_topic[:60]})
     logger.info(f"[researcher] searching topic: '{current_topic[:60]}'")
 
     try:
-        search_cfg  = get_search_config()
+        search_cfg = get_search_config()
         max_results = search_cfg.get("max_results", 5)
-        max_wiki    = search_cfg.get("max_wiki_results", 3)
+        max_wiki = search_cfg.get("max_wiki_results", 3)
 
         selection = select_tool(current_topic)
-        tool      = selection["tool"]
+        tool = selection["tool"]
         logger.debug(
             f"[researcher] tool={tool} | conf={selection['confidence']} | "
             f"{selection['reason']}"
@@ -87,32 +87,36 @@ def researcher_agent(state: ResearchState) -> dict:
         log_agent_end(event_id, run_id, "researcher", t0)
 
         return {
-            "sources":             unique,
+            "sources": unique,
             "search_queries_used": [current_topic],
-            "pipeline_trace": [{
-                "agent":       "researcher",
-                "duration_ms": elapsed_ms,
-                "tokens":      0,
-                "summary": (
-                    f"'{current_topic[:35]}' -> "
-                    f"{len(unique)} sources via {tool} (async)"
-                ),
-            }],
+            "pipeline_trace": [
+                {
+                    "agent": "researcher",
+                    "duration_ms": elapsed_ms,
+                    "tokens": 0,
+                    "summary": (
+                        f"'{current_topic[:35]}' -> "
+                        f"{len(unique)} sources via {tool} (async)"
+                    ),
+                }
+            ],
         }
 
     except Exception as e:
         logger.error(f"[researcher] failed for '{current_topic[:40]}': {e}")
         log_agent_end(event_id, run_id, "researcher", t0, error=str(e))
         return {
-            "sources":             [],
+            "sources": [],
             "search_queries_used": [current_topic],
-            "errors":              [f"Researcher error ({current_topic[:40]}): {e}"],
-            "pipeline_trace": [{
-                "agent":       "researcher",
-                "duration_ms": int((time.time() - t0) * 1000),
-                "tokens":      0,
-                "summary":     f"Error on '{current_topic[:35]}': {e}",
-            }],
+            "errors": [f"Researcher error ({current_topic[:40]}): {e}"],
+            "pipeline_trace": [
+                {
+                    "agent": "researcher",
+                    "duration_ms": int((time.time() - t0) * 1000),
+                    "tokens": 0,
+                    "summary": f"Error on '{current_topic[:35]}': {e}",
+                }
+            ],
         }
 
 
@@ -124,6 +128,7 @@ def researcher_agent(state: ResearchState) -> dict:
 # or scheduling it on an existing one if we're already inside asyncio
 # (e.g. when arun_pipeline() is used).
 # -----------------------------------------------------------------
+
 
 def _run_async(coro) -> any:
     """
@@ -143,6 +148,7 @@ def _run_async(coro) -> any:
         asyncio.get_running_loop()
         # We ARE inside an async context -- run in a thread with its own event loop.
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(asyncio.run, coro)
             return future.result()

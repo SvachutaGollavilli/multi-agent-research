@@ -46,13 +46,13 @@ def _domain_trust_score(domain: str, cfg: dict) -> float:
     Checks suffix match so subdomains work:
       e.g. "cs.mit.edu" matches "mit.edu" → high trust
     """
-    high_trust    = cfg.get("high_trust_domains", [])
-    medium_trust  = cfg.get("medium_trust_domains", [])
-    low_trust     = cfg.get("low_trust_domains", [])
+    high_trust = cfg.get("high_trust_domains", [])
+    medium_trust = cfg.get("medium_trust_domains", [])
+    low_trust = cfg.get("low_trust_domains", [])
 
-    score_high    = float(cfg.get("domain_trust_high",    1.0))
-    score_medium  = float(cfg.get("domain_trust_medium",  0.6))
-    score_low     = float(cfg.get("domain_trust_low",     0.2))
+    score_high = float(cfg.get("domain_trust_high", 1.0))
+    score_medium = float(cfg.get("domain_trust_medium", 0.6))
+    score_low = float(cfg.get("domain_trust_low", 0.2))
     score_neutral = float(cfg.get("domain_trust_neutral", 0.4))
 
     # Suffix match — handles subdomains like "cs.mit.edu" → "mit.edu"
@@ -89,9 +89,9 @@ def _snippet_quality_score(content: str, cfg: dict) -> float:
     if not content:
         return 0.0
 
-    min_chars   = int(cfg.get("snippet_min_chars", 100))
-    max_chars   = int(cfg.get("snippet_max_chars", 300))
-    penalty     = float(cfg.get("boilerplate_penalty", 0.3))
+    min_chars = int(cfg.get("snippet_min_chars", 100))
+    max_chars = int(cfg.get("snippet_max_chars", 300))
+    penalty = float(cfg.get("boilerplate_penalty", 0.3))
     boilerplate = cfg.get("boilerplate_phrases", [])
 
     # Length score
@@ -106,7 +106,7 @@ def _snippet_quality_score(content: str, cfg: dict) -> float:
     # Boilerplate penalty
     content_lower = content.lower()
     penalties_hit = sum(1 for phrase in boilerplate if phrase in content_lower)
-    final_score   = max(0.0, length_score - (penalties_hit * penalty))
+    final_score = max(0.0, length_score - (penalties_hit * penalty))
 
     return final_score
 
@@ -120,38 +120,42 @@ def quality_gate_agent(state: ResearchState) -> dict:
     The routing decision (retry vs proceed) is made by _should_retry_research()
     in graph.py, not here — this agent only scores and reports.
     """
-    run_id  = state.get("run_id", "")
+    run_id = state.get("run_id", "")
     sources = state.get("sources", [])
 
     event_id, t0 = log_agent_start(run_id, "quality_gate", {"sources": len(sources)})
     logger.info(f"[quality_gate] scoring {len(sources)} sources")
 
-    cfg      = get_quality_gate_config()
+    cfg = get_quality_gate_config()
     pipe_cfg = get_pipeline_config()
-    threshold       = float(pipe_cfg.get("quality_threshold", 0.4))
-    domain_weight   = float(cfg.get("domain_weight",  0.5))
-    snippet_weight  = float(cfg.get("snippet_weight", 0.5))
+    threshold = float(pipe_cfg.get("quality_threshold", 0.4))
+    domain_weight = float(cfg.get("domain_weight", 0.5))
+    snippet_weight = float(cfg.get("snippet_weight", 0.5))
 
     if not sources:
         log_agent_end(event_id, run_id, "quality_gate", t0, error="No sources to score")
         return {
-            "quality_score":   0.0,
-            "quality_passed":  False,
-            "pipeline_trace": [{
-                "agent": "quality_gate", "duration_ms": 0, "tokens": 0,
-                "summary": "Skipped — no sources",
-            }],
+            "quality_score": 0.0,
+            "quality_passed": False,
+            "pipeline_trace": [
+                {
+                    "agent": "quality_gate",
+                    "duration_ms": 0,
+                    "tokens": 0,
+                    "summary": "Skipped — no sources",
+                }
+            ],
         }
 
     # ── Score every source ────────────────────────────────────────────────
-    domain_scores:  list[float] = []
+    domain_scores: list[float] = []
     snippet_scores: list[float] = []
-    per_source_log: list[str]   = []
+    per_source_log: list[str] = []
 
     for s in sources:
-        url     = s.get("url", "")
+        url = s.get("url", "")
         content = s.get("content", "")
-        domain  = _extract_domain(url)
+        domain = _extract_domain(url)
 
         d_score = _domain_trust_score(domain, cfg)
         s_score = _snippet_quality_score(content, cfg)
@@ -163,9 +167,9 @@ def quality_gate_agent(state: ResearchState) -> dict:
         )
         logger.debug(per_source_log[-1])
 
-    avg_domain  = sum(domain_scores)  / len(domain_scores)
+    avg_domain = sum(domain_scores) / len(domain_scores)
     avg_snippet = sum(snippet_scores) / len(snippet_scores)
-    composite   = (avg_domain * domain_weight) + (avg_snippet * snippet_weight)
+    composite = (avg_domain * domain_weight) + (avg_snippet * snippet_weight)
 
     passed = composite >= threshold
     verdict = "PASS" if passed else "FAIL"
@@ -181,16 +185,18 @@ def quality_gate_agent(state: ResearchState) -> dict:
     )
 
     return {
-        "quality_score":   round(composite, 4),
-        "quality_passed":  passed,
-        "pipeline_trace": [{
-            "agent":       "quality_gate",
-            "duration_ms": elapsed_ms,
-            "tokens":      0,
-            "summary": (
-                f"{verdict} score={composite:.3f} "
-                f"(domain={avg_domain:.3f}, snippet={avg_snippet:.3f}) "
-                f"| {len(sources)} sources"
-            ),
-        }],
+        "quality_score": round(composite, 4),
+        "quality_passed": passed,
+        "pipeline_trace": [
+            {
+                "agent": "quality_gate",
+                "duration_ms": elapsed_ms,
+                "tokens": 0,
+                "summary": (
+                    f"{verdict} score={composite:.3f} "
+                    f"(domain={avg_domain:.3f}, snippet={avg_snippet:.3f}) "
+                    f"| {len(sources)} sources"
+                ),
+            }
+        ],
     }

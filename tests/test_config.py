@@ -37,7 +37,14 @@ class TestGetModel:
         assert isinstance(get_model("writer"), str)
 
     def test_known_agents_return_model(self):
-        for agent in ("planner", "researcher", "analyst", "synthesizer", "writer", "reviewer"):
+        for agent in (
+            "planner",
+            "researcher",
+            "analyst",
+            "synthesizer",
+            "writer",
+            "reviewer",
+        ):
             m = get_model(agent)
             assert m, f"Empty model for agent '{agent}'"
             assert "claude" in m.lower(), f"Unexpected model string: {m}"
@@ -83,8 +90,13 @@ class TestGetPipelineConfig:
 
     def test_has_required_keys(self):
         cfg = get_pipeline_config()
-        for key in ("max_sub_topics", "max_revisions", "quality_threshold",
-                    "review_pass_score", "max_quality_retries"):
+        for key in (
+            "max_sub_topics",
+            "max_revisions",
+            "quality_threshold",
+            "review_pass_score",
+            "max_quality_retries",
+        ):
             assert key in cfg, f"Missing pipeline config key: {key}"
 
     def test_max_sub_topics_is_positive_int(self):

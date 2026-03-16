@@ -46,12 +46,12 @@ def _drain_worker() -> None:
         try:
             # block up to 0.5s — keeps CPU near 0% when idle
             item = _write_queue.get(timeout=0.5)
-            if item is None:            # sentinel — time to shut down
+            if item is None:  # sentinel — time to shut down
                 break
             _persist(item)
             _write_queue.task_done()
         except queue.Empty:
-            continue                    # timeout — loop and check shutdown
+            continue  # timeout — loop and check shutdown
         except Exception as e:
             logger.error(f"Drain worker error: {e}")
     logger.debug("DB drain thread stopped")
@@ -150,6 +150,7 @@ def _persist(item: dict) -> None:
 # Lifecycle — call once at app startup / shutdown
 # ═══════════════════════════════════════════════
 
+
 def start_logger() -> None:
     """
     Start the background drain thread.
@@ -158,13 +159,13 @@ def start_logger() -> None:
     """
     global _drain_thread
     if _drain_thread is not None and _drain_thread.is_alive():
-        return                          # already running
+        return  # already running
 
     _shutdown_event.clear()
     _drain_thread = threading.Thread(
         target=_drain_worker,
         name="db-drain",
-        daemon=True,                    # dies automatically when main process exits
+        daemon=True,  # dies automatically when main process exits
     )
     _drain_thread.start()
     logger.info("Observability logger started")
@@ -175,7 +176,7 @@ def stop_logger(timeout: float = 5.0) -> None:
     Flush remaining queue items and stop the drain thread.
     Call this on clean shutdown (optional — daemon thread dies anyway).
     """
-    _write_queue.put(None)              # send sentinel
+    _write_queue.put(None)  # send sentinel
     _shutdown_event.set()
     if _drain_thread:
         _drain_thread.join(timeout=timeout)
@@ -186,6 +187,7 @@ def stop_logger(timeout: float = 5.0) -> None:
 # Public API — what agents call
 # ═══════════════════════════════════════════════
 
+
 def start_run(query: str) -> str:
     """
     Register a new pipeline run in the DB.
@@ -193,12 +195,14 @@ def start_run(query: str) -> str:
     Call at the very beginning of graph execution.
     """
     run_id = str(uuid.uuid4())
-    _enqueue({
-        "type":       "run_start",
-        "run_id":     run_id,
-        "query":      query,
-        "started_at": time.time(),
-    })
+    _enqueue(
+        {
+            "type": "run_start",
+            "run_id": run_id,
+            "query": query,
+            "started_at": time.time(),
+        }
+    )
     logger.info(f"Run started: {run_id[:8]}... | query: '{query[:60]}'")
     return run_id
 
@@ -227,17 +231,19 @@ def end_run(
     # Direct values from the result dict are authoritative.
     # The accumulator is a fallback for cases where we don't have result.
     final_tokens = total_tokens if total_tokens is not None else summary["total_tokens"]
-    final_cost   = total_cost   if total_cost   is not None else summary["total_cost"]
+    final_cost = total_cost if total_cost is not None else summary["total_cost"]
 
-    _enqueue({
-        "type":         "run_end",
-        "run_id":       run_id,
-        "status":       status,
-        "finished_at":  time.time(),
-        "total_tokens": final_tokens,
-        "total_cost":   round(final_cost, 8),
-        "final_report": final_report,
-    })
+    _enqueue(
+        {
+            "type": "run_end",
+            "run_id": run_id,
+            "status": status,
+            "finished_at": time.time(),
+            "total_tokens": final_tokens,
+            "total_cost": round(final_cost, 8),
+            "final_report": final_report,
+        }
+    )
 
     logger.info(
         f"Run ended: {run_id[:8]}... | status: {status} | "
@@ -255,20 +261,22 @@ def log_agent_start(
     Log that an agent has started.
     Returns (event_id, start_time) — pass both to log_agent_end().
     """
-    event_id   = str(uuid.uuid4())
+    event_id = str(uuid.uuid4())
     start_time = time.time()
 
     input_hash = _hash_state(input_state) if input_state is not None else None
 
-    _enqueue({
-        "type":        "agent_event",
-        "event_id":    event_id,
-        "run_id":      run_id,
-        "agent_name":  agent_name,
-        "status":      "started",
-        "started_at":  start_time,
-        "input_hash":  input_hash,
-    })
+    _enqueue(
+        {
+            "type": "agent_event",
+            "event_id": event_id,
+            "run_id": run_id,
+            "agent_name": agent_name,
+            "status": "started",
+            "started_at": start_time,
+            "input_hash": input_hash,
+        }
+    )
     logger.debug(f"[{agent_name}] started (run={run_id[:8]}...)")
     return event_id, start_time
 
@@ -287,20 +295,22 @@ def log_agent_end(
     duration_ms is computed automatically from start_time.
     """
     duration_ms = int((time.time() - start_time) * 1000)
-    status      = "failed" if error else "completed"
+    status = "failed" if error else "completed"
 
-    _enqueue({
-        "type":        "agent_event",
-        "event_id":    event_id + "_end",
-        "run_id":      run_id,
-        "agent_name":  agent_name,
-        "status":      status,
-        "started_at":  start_time,
-        "duration_ms": duration_ms,
-        "tokens_used": tokens_used,
-        "cost_usd":    cost_usd,
-        "error":       error,
-    })
+    _enqueue(
+        {
+            "type": "agent_event",
+            "event_id": event_id + "_end",
+            "run_id": run_id,
+            "agent_name": agent_name,
+            "status": status,
+            "started_at": start_time,
+            "duration_ms": duration_ms,
+            "tokens_used": tokens_used,
+            "cost_usd": cost_usd,
+            "error": error,
+        }
+    )
 
     if error:
         logger.error(f"[{agent_name}] FAILED in {duration_ms}ms — {error}")
@@ -318,22 +328,25 @@ def log_cost(record: CostRecord) -> None:
     Write one LLM API call to the cost_ledger table.
     Call this immediately after every llm.invoke().
     """
-    _enqueue({
-        "type":          "cost_ledger",
-        "ledger_id":     str(uuid.uuid4()),
-        "run_id":        record.run_id,
-        "agent_name":    record.agent_name,
-        "model":         record.model,
-        "input_tokens":  record.input_tokens,
-        "output_tokens": record.output_tokens,
-        "cost_usd":      record.cost_usd,
-        "timestamp":     time.time(),
-    })
+    _enqueue(
+        {
+            "type": "cost_ledger",
+            "ledger_id": str(uuid.uuid4()),
+            "run_id": record.run_id,
+            "agent_name": record.agent_name,
+            "model": record.model,
+            "input_tokens": record.input_tokens,
+            "output_tokens": record.output_tokens,
+            "cost_usd": record.cost_usd,
+            "timestamp": time.time(),
+        }
+    )
 
 
 # ═══════════════════════════════════════════════
 # Internal helpers
 # ═══════════════════════════════════════════════
+
 
 def _enqueue(item: dict) -> None:
     """
@@ -367,13 +380,13 @@ if __name__ == "__main__":
 
     logging.basicConfig(
         level=logging.DEBUG,
-        format="%(asctime)s | %(name)s | %(levelname)s | %(message)s"
+        format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
     )
 
     print("Starting logger...")
     start_logger()
 
-    acc    = RunCostAccumulator(run_id="")
+    acc = RunCostAccumulator(run_id="")
     run_id = start_run("How does LangGraph handle parallel execution?")
     acc.run_id = run_id
 
@@ -390,13 +403,19 @@ if __name__ == "__main__":
         )
         acc.add(rec)
         log_cost(rec)
-        log_agent_end(event_id, run_id, agent_name, t0,
-                      tokens_used=rec.total_tokens,
-                      cost_usd=rec.cost_usd)
+        log_agent_end(
+            event_id,
+            run_id,
+            agent_name,
+            t0,
+            tokens_used=rec.total_tokens,
+            cost_usd=rec.cost_usd,
+        )
 
     # Pass totals directly — simulates what graph.py does with result dict
     end_run(
-        run_id, acc,
+        run_id,
+        acc,
         final_report="Test report.",
         status="completed",
         total_tokens=acc.total_tokens,

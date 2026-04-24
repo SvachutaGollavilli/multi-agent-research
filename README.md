@@ -267,34 +267,6 @@ Researcher wall-clock time is ~1s even for 3 parallel instances because Tavily +
 
 ---
 
-## Interview Guide
-
-**Q: How many agents and nodes are in this system?**
-> 7 agent functions across 10 graph nodes: planner, researcher, merge_research, cache_loader, quality_gate, retry_counter, analyst, synthesizer, writer, reviewer. The retry flow reuses the researcher function, so there are 10 nodes but only 7 unique agent implementations.
-
-**Q: How does the two-level cache work?**
-> Level 1 is an exact SHA-256 hash of the normalized query — O(1), instant. Level 2 is semantic similarity using `all-MiniLM-L6-v2` embeddings and cosine similarity at threshold 0.60. This catches paraphrased queries ("what is FAISS" → matches "explain FAISS" at cosine 0.76). Cache writes are dispatched to a daemon background thread from `merge_research_node` — the pipeline never blocks on the ~40ms embed+write.
-
-**Q: How does parallel execution work in LangGraph?**
-> The planner decomposes the query into 1-3 sub-topics. `fan_out_or_cache` creates `Send("researcher", {**state, "current_topic": topic})` objects — one per sub-topic. LangGraph dispatches these in parallel. Within each researcher, Tavily and Wikipedia are queried concurrently via `asyncio.gather()` — so there are two levels of parallelism. Sources merge via `Annotated[list[dict], operator.add]`.
-
-**Q: Why use a background thread for DB writes?**
-> The observability logger uses a `queue.Queue` + daemon drain thread. Agents call `_enqueue(item)` which is non-blocking — if the queue is full (DB slow), items are dropped rather than blocking agents. This keeps DB latency out of the critical path. The same pattern is used for cache writes: `merge_research_node` dispatches cache storage on a daemon thread.
-
-**Q: How does cost tracking work?**
-> Every agent calls `calculate_cost(model, input_tokens, output_tokens)` after each LLM call. Token counts come from `response.usage_metadata`. The `RunCostAccumulator` accumulates per-agent costs and checks against configurable soft ($0.08) and hard ($0.10) USD limits. `cost_usd` uses `operator.add` in the state so it accumulates safely across parallel agents.
-
-**Q: How do you prevent the reviewer loop from running forever?**
-> Two guards: (1) the reviewer scores 1-10, and the pipeline only loops if `score < review_pass_score (7)` from config; (2) `revision_count` is capped at `max_revisions=2` in base.yaml. The `_should_revise` routing function checks both: `score >= pass_score OR revision_count >= max_revisions → END`.
-
-**Q: How is the Streamlit UI updated in real-time if the graph is async?**
-> `stream_pipeline_async()` bridges async → sync: it runs `graph.astream()` inside a daemon thread with its own event loop, and passes node completion events back to Streamlit's synchronous main thread via a `queue.Queue`. The Streamlit thread drains this queue in a `while True` loop, yielding `(node_name, update, accumulated_state)` for each completed node.
-
-**Q: What would you change for production deployment?**
-> (1) Swap SQLite cache for Redis for concurrent multi-user access; (2) Use Postgres (already supported via `DATABASE_URL` + psycopg3) for the observability DB; (3) Add LangSmith tracing for distributed tracing across runs; (4) Implement human-in-the-loop checkpoints for low-confidence claims; (5) Route simple factual queries to single-agent (2.6× cheaper based on evaluation).
-
----
-
 ## Environment Variables
 
 | Variable | Required | Description |
